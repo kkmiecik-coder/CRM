@@ -557,7 +557,8 @@ def cofnij_weryfikacje_zamowienia(order, aktywne, aktualne, powod, worker_id, de
     nie może liczyć się jako załadowana.
 
     (fala końcowa 4.4b, decyzja Konrada A1) Woła ją też hurtowa zmiana statusu na „spakowane” na zamówieniu
-    zweryfikowanym (products_api._zapisz_zmiane_statusu) — `user_id` to użytkownik panelu w logu."""
+    zweryfikowanym (zmiana_statusu.zmien_status) — `user_id` to użytkownik panelu w logu, a `worker_id` pracownik, który
+    zrobił to z tabletu kierownika hali."""
     for p in aktywne:
         if p.current_status == 'zweryfikowane':
             p.current_status = 'spakowane'

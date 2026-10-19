@@ -11,7 +11,7 @@ from datetime import datetime, date, timedelta
 from flask import request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from sqlalchemy import and_, or_, func, distinct, cast, literal, String, case
+from sqlalchemy import or_, func, distinct, cast, String
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload
 
@@ -19,7 +19,7 @@ from . import api_bp, logger, ProductionItem, ProductionError, get_local_now
 from .common_api import _format_status, _validate_config_value
 from modules.production.models import ProductionOrder, ProductionConfiguration
 from modules.production.logistics import sposoby
-from modules.production.services import blokady_zamowien
+from modules.production.services import blokady_zamowien, zmiana_statusu
 from modules.production.services.archiwum_zamowien import (
     warunek_archiwum as _archived_order_condition,
     data_zakonczenia_expr as _archive_completed_expr,
@@ -1137,209 +1137,23 @@ def admin_apply_baselinker_changes():
 
 
 
-def _zablokuj_zamowienia_i_pozycje(product_ids):
-    """
-    Zaznaczone pozycje hurtowej zmiany statusu, wczytane po zablokowaniu ich zamówień. Zwraca krotkę
-    (zablokowane zamówienia rosnąco po id, zaznaczone pozycje rosnąco po id).
-
-    Kolejność blokad jak w zapisach Weryfikacji: zamówienia FOR UPDATE (rosnące id) → wszystkie pozycje każdego
-    zamówienia FOR UPDATE po `order_id` (`blokady_zamowien.zablokuj_pozycje`, rosnąco po id) → dopiero zmiany
-    statusów i reguła uniewaznij_etapy. Dotąd hurt najpierw zapisywał
-    pozycje (flush daje blokadę pozycji), a dopiero potem reguła zapisywała zamówienie — odwrotnie niż
-    Weryfikacja (zamówienie → pozycje), stąd zakleszczenie MySQL 1213. Do tego zamówienie i pozycje szły
-    z migawki REPEATABLE READ: zamówienie, które Weryfikacja zdążyła zweryfikować, miało w pamięci stare
-    `verified_at`, więc reguła kasowała paczki, ale nie czyściła weryfikacji.
-
-    Identyfikatory zamówień bierzemy zwykłym odczytem `order_id` (ta kolumna pozycji się nie zmienia), a
-    zamówienia i pozycje czytamy odczytem bieżącym (`populate_existing`): obiekty w sesji dostają wartości
-    z bazy zamiast migawki. `p.order` każdej pozycji wskazuje te same, odświeżone obiekty. Wołać PRZED
-    jakąkolwiek zmianą obiektów w sesji: `populate_existing` nadpisuje atrybuty, a autoflush zapisałby
-    zmienioną pozycję przed blokadą zamówienia.
-
-    (Krok 4.4a, runda 4) Zamówienia i pozycje blokuje `blokady_zamowien` (zablokuj_zamowienia, potem
-    zablokuj_pozycje zamówienie po zamówieniu, rosnąco): blokowane są WSZYSTKIE pozycje każdego zamówienia po
-    `order_id`, nie tylko zaznaczone, bo reguła unieważniania i przeliczenie zamknięcia decydują na całym składzie
-    zamówienia. Wołający trzyma zwróconą listę zamówień do końca decyzji: wynik blokady, którego nikt nie trzymał,
-    znikał z mapy tożsamości (trzyma czyste obiekty słabo), a `p.order` czytało wtedy zamówienie od nowa zwykłym
-    SELECT-em — na MySQL z migawki sprzed blokady.
-
-    (Fala końcowa 4.4b, decyzja Konrada A2) Przed blokadami zamówień — globalna blokada tras (`routes.zablokuj_trasy`)
-    i odczyt bieżący przystanków tych zamówień na trasach załadowanych i w drodze (`_trasy_w_drodze`): kolejność
-    Dostawy (blokada tras → zamówienia → paczki i pozycje). Status trasy, na którym hurt odmawia, czytamy pod blokadą,
-    która go chroni. Zwraca więc trójkę: (zamówienia, zaznaczone pozycje, wynik `_trasy_w_drodze`).
-    """
-    from modules.production.logistics.services import routes
-    wiersze = (db.session.query(ProductionItem.id, ProductionItem.order_id)
-               .filter(ProductionItem.id.in_(product_ids)).all())
-    zaznaczone = {product_id for product_id, _order_id in wiersze}
-    id_zamowien = [order_id for _product_id, order_id in wiersze]
-    routes.zablokuj_trasy()
-    w_drodze = _trasy_w_drodze(id_zamowien)
-    zamowienia = blokady_zamowien.zablokuj_zamowienia(id_zamowien)
-    pozycje = []
-    for zamowienie in zamowienia:
-        pozycje.extend(p for p in blokady_zamowien.zablokuj_pozycje(zamowienie) if p.id in zaznaczone)
-    return zamowienia, sorted(pozycje, key=lambda p: p.id), w_drodze
-
-
-# Decyzja Konrada 2.10 (A2): opis statusu trasy w odmowie hurtu.
-_OPIS_TRASY_W_DRODZE = {'zaladowana': u'załadowana', 'w_trasie': u'w drodze'}
-
-
-def _trasy_w_drodze(order_ids):
-    """
-    {order_id: (nazwa trasy, status, stan przystanku: 'dostarczony' | 'niedostarczony' | None)} zamówień, których
-    przystanek jest na trasie
-    załadowanej albo w drodze
-    (`dostawa.STATUSY_W_DRODZE`). Odczyt BIEŻĄCY (blokada współdzielona, LOCK IN SHARE MODE), wołany pod globalną
-    blokadą tras: przystanki i trasy zapisuje tylko jej posiadacz, więc wynik obowiązuje do końca transakcji. Zwykły
-    SELECT widziałby migawkę REPEATABLE READ sprzed czekania na blokadę (np. załadunek zakończony w tej chwili).
-    """
-    from modules.production.logistics.models import Route, RouteStop
-    from modules.production.logistics.services import dostawa
-    ids = sorted({i for i in order_ids if i is not None})
-    if not ids:
-        return {}
-    wiersze = (db.session.query(RouteStop.order_id, Route.name, Route.status, RouteStop.delivered_at,
-                                RouteStop.not_delivered_at)
-               .join(Route, Route.id == RouteStop.route_id)
-               .filter(RouteStop.order_id.in_(ids), Route.status.in_(dostawa.STATUSY_W_DRODZE))
-               .with_for_update(read=True).all())
-    return {order_id: (nazwa, status, 'dostarczony' if dostarczono is not None
-                       else ('niedostarczony' if niedostarczono is not None else None))
-            for order_id, nazwa, status, dostarczono, niedostarczono in wiersze}
-
-
-def _odmowa_trasy_w_drodze(zamowienie, nazwa, status, stan):
-    """Komunikat odmowy hurtu z wykonalnym krokiem: przystanek już dostarczony (trasa w drodze) cofa się przez
-    „Cofnij dostarczenie” (Ruling 30.6); oznaczony jako niedostarczony (U10, Ruling 32) wisi na trasie do jej końca
-    albo do „Zdejmij z trasy” w panelu tras; pozostałe — „Cofnij załadunek” (trasa załadowana) albo „Niedostarczone”
-    i „Zdejmij z trasy” (trasa w drodze)."""
-    numer = zamowienie.internal_order_number or u'#{}'.format(zamowienie.id)
-    opis = _OPIS_TRASY_W_DRODZE.get(status, status)
-    if stan == 'niedostarczony':
-        return (u'Zamówienie {} jest niedostarczone na trasie „{}” ({}) — wróci do puli po zakończeniu trasy albo po '
-                u'„Zdejmij z trasy” w panelu tras.'.format(numer, nazwa, opis))
-    if stan == 'dostarczony':
-        return (u'Zamówienie {} jest dostarczone na trasie „{}” ({}) — najpierw Cofnij dostarczenie.'
-                .format(numer, nazwa, opis))
-    # Runda 1 U10: „Niedostarczone” zostawia zamówienie na trasie do jej końca, więc samo nie wystarcza — z trasy
-    # w drodze zdejmuje je dopiero „Zdejmij z trasy” w panelu (albo zamknięcie trasy); „Cofnij załadunek” jest tylko dla
-    # trasy załadowanej.
-    if status == 'zaladowana':
-        return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Cofnij załadunek.'.format(numer, nazwa, opis))
-    return (u'Zamówienie {} jest na trasie „{}” ({}) — najpierw Niedostarczone, potem Zdejmij z trasy w panelu tras.'
-            .format(numer, nazwa, opis))
-
-
 def _zapisz_zmiane_statusu(product_ids, nowy_status, user_id):
     """
-    Cały zapis hurtowej zmiany statusu w jednej transakcji: blokady (`_zablokuj_zamowienia_i_pozycje`), pętla
-    statusów, reguła unieważniania etapów z przeliczeniem zamknięcia i commit. Zwraca słownik odpowiedzi
-    (`results`) albo None, gdy po blokadzie nie ma żadnej z zaznaczonych pozycji (wołający odpowiada 404).
-
-    Wynik liczy się od zera przy każdym wywołaniu, a zablokowane zamówienia trzyma lokalna lista do końca decyzji
-    (silne referencje), więc funkcję wolno wywołać drugi raz po rollbacku: jedno ponowienie po zakleszczeniu 1213,
-    patrz `bulk_action`. `user_id` podaje wołający, pobrany przed pierwszą próbą: po rollbacku `current_user.id`
-    byłby zwykłym SELECT-em, czyli odczytem spoza blokad.
-
-    Decyzje Konrada 2.10 (fala końcowa kroku 4.4b):
-    - A2: zamówienie, którego przystanek jest na trasie załadowanej albo w drodze, hurt odmawia — bez żadnej zmiany
-      jego pozycji; odmowa per zamówienie w `errors`, jego zaznaczone pozycje w `failed_count`, reszta zaznaczonych
-      przechodzi. Gdy odmowa obejmuje wszystkie zaznaczone pozycje, nic się nie zapisuje (rollback), a wynik ma
-      `success: False` i `error` — wołający odpowiada 409. Anulowanie przechodzi: to nie powrót do produkcji, a
-      Dostawa obsługuje zamówienie anulowane („Niedostarczone”, przystanek anulowanego w całości).
-    - A1: zmiana na „spakowane” na zamówieniu zweryfikowanym (verified_at albo pozycja 'zweryfikowane' przed zmianą)
-      unieważnia weryfikację tą samą regułą co „Cofnij weryfikację” (weryfikacja.cofnij_weryfikacje_zamowienia) —
-      chyba że reguła unieważniania etapów zrobiła to już sama (zwróciła True).
+    Hurtowa zmiana statusu w jednej transakcji panelu: `zmiana_statusu.zmien_status` (blokady, pętla statusów, reguła
+    unieważniania etapów) i commit po sukcesie. Serwis sam niczego nie commituje ani nie cofa (woła go też tablet
+    kierownika), więc zamknięcie transakcji jest tutaj: przy odmowie dla wszystkich zaznaczonych pozycji
+    (`success: False`) nic się nie zapisuje — rollback, a `bulk_action` odpowiada 409. Zwraca słownik serwisu albo
+    None, gdy po blokadzie nie ma żadnej z zaznaczonych pozycji (404). Ponowienie po zakleszczeniu 1213 jest w
+    `bulk_action` i woła tę funkcję od nowa (wynik liczy się od zera).
     """
-    # Ręczna zmiana statusu może zamknąć albo otworzyć cykl logistyczny zamówienia.
-    from modules.production.logistics.services.delivery import aktywne_produkty, przelicz_zamkniecie
-    from modules.production.logistics.services import weryfikacja
-    zamowienia, products, w_drodze = _zablokuj_zamowienia_i_pozycje(product_ids)
-    if not products:
+    results = zmiana_statusu.zmien_status(product_ids, nowy_status, user_id=user_id)
+    if results is None:
         return None
-
-    results = {
-        'success': True,
-        'action': 'update_status',
-        'processed_count': 0,
-        'failed_count': 0,
-        'errors': []
-    }
-
-    # A2 — decyzja na przystankach i trasach z odczytu bieżącego pod blokadą tras (_zablokuj_zamowienia_i_pozycje).
-    odmowy = {}
-    if nowy_status != 'anulowane':
-        odmowy = {z.id: _odmowa_trasy_w_drodze(z, *w_drodze[z.id]) for z in zamowienia if z.id in w_drodze}
-    results['errors'].extend(odmowy[z.id] for z in zamowienia if z.id in odmowy)
-    # A1 — stan PRZED zmianą statusów, na zablokowanych obiektach (zamówienie i wszystkie jego pozycje).
-    zweryfikowane = set()
-    if nowy_status == 'spakowane':
-        zweryfikowane = {z.id for z in zamowienia if z.id not in odmowy and (
-            z.verified_at is not None or any(p.current_status == 'zweryfikowane' for p in aktywne_produkty(z)))}
-
-    for product in products:
-        if product.order_id in odmowy:
-            results['failed_count'] += 1
-            continue
-        try:
-            if nowy_status and hasattr(ProductionItem, 'current_status'):
-                product.current_status = nowy_status
-                results['processed_count'] += 1
-        except Exception as e:
-            logger.error(f"Błąd bulk action dla produktu {product.id}", extra={'error': str(e)})
-            results['errors'].append(f'Błąd produktu {product.id}: {str(e)}')
-            results['failed_count'] += 1
-
-    if odmowy and not results['processed_count']:
-        # Odmowa obejmuje wszystkie zaznaczone pozycje: nic do zapisania (409 w bulk_action).
+    if results['success']:
+        db.session.commit()
+    else:
         db.session.rollback()
-        results['success'] = False
-        results['error'] = u' '.join(results['errors'])
-        return results
-
-    teraz = get_local_now()
-    # Priorytety produkcji (spec 2026-10-04, 5.1): pozycja wstrzymana, anulowana albo przestawiona na inny status
-    # schodzi ze stanowiska — jej kafel schodzi ze stołu w tej samej transakcji, pod trzymaną blokadą zamówienia.
-    from modules.production.priorytety.services import stol
-    zdjete_ze_stolu = set()
-    # Stała kolejność (rosnące id): reguła unieważniania zapisuje wiersz zamówienia i bierze
-    # blokady paczek, więc dwa równoległe zapisy na nakładających się zamówieniach muszą
-    # brać je w tej samej kolejności — inaczej zakleszczenie (MySQL 1213). `zamowienia` to wynik
-    # blokady (rosnąco po id, ze składem z odczytu bieżącego): decyzja nie czyta zamówień od nowa.
-    for zamowienie in zamowienia:
-        if zamowienie.id in odmowy:
-            continue
-        # Pozycja cofnięta do produkcji unieważnia paczki, weryfikację i załadunek zamówienia.
-        cofnieto = weryfikacja.uniewaznij_etapy(zamowienie, teraz, u'zmiana statusu w panelu', user_id=user_id)
-        if zamowienie.id in zweryfikowane and not cofnieto:
-            _cofnij_weryfikacje_hurtem(zamowienie, teraz, user_id)
-        przelicz_zamkniecie(zamowienie)
-        zdjete_ze_stolu |= stol.zdejmij_nieaktualne(zamowienie, teraz=teraz)
-
-    db.session.commit()
-    # Stanowiska, z których zdjęto kafel — wołający wysyła im sygnał po commicie (spec 5.4).
-    results['zdjete_stanowiska'] = sorted(zdjete_ze_stolu)
     return results
-
-
-def _cofnij_weryfikacje_hurtem(zamowienie, teraz, user_id):
-    """
-    Decyzja Konrada 2.10 (A1): hurt → „spakowane” na zamówieniu zweryfikowanym = „Cofnij weryfikację”
-    (weryfikacja.cofnij_weryfikacje_zamowienia: pozycje zweryfikowane → spakowane, verified_at zamówienia i znaczniki
-    weryfikacji paczek czyszczone, znaczniki załadunku czyszczone, log `weryfikacja_cofnieta`, przeliczenie zamknięcia).
-    Bez wysyłki do Base. — jak „Cofnij weryfikację”.
-
-    Zamówienie i wszystkie jego pozycje hurt już blokuje; paczki blokujemy tu (paczki.zablokuj_stan: paczki, potem
-    pozycje — już trzymane), w kolejności reguły unieważniania etapów. Najpierw flush: odczyt bieżący nadpisuje
-    obiekty w sesji (populate_existing), więc statusy ustawione w pętli hurtu muszą być już w bazie.
-    """
-    from modules.production.logistics.services import delivery, paczki, weryfikacja
-    db.session.flush()
-    aktualne = paczki.zablokuj_stan(zamowienie)
-    weryfikacja.cofnij_weryfikacje_zamowienia(zamowienie, delivery.aktywne_produkty(zamowienie), aktualne,
-                                              u'zmiana statusu w panelu', None, None, teraz, user_id=user_id)
 
 
 @api_bp.route('/products/bulk-action', methods=['POST'])
@@ -1395,13 +1209,11 @@ def bulk_action():
             # 'czeka_na_logistyke' zostaje w ENUM do sprzątania, ale nie jest już
             # etapem pipeline'u — logistyka żyje równolegle na zamówieniu.
             # Statusy po spakowaniu nadaje tylko logistyka (spec 8.6) — ręcznie ich nie ustawiamy.
-            dozwolone_statusy = (set(ProductionItem.current_status.type.enums) - {'czeka_na_logistyke'}
-                                 - set(sposoby.STATUSY_LOGISTYCZNE))
-            if nowy_status not in dozwolone_statusy:
+            if nowy_status not in zmiana_statusu.DOZWOLONE_STATUSY:
                 return jsonify({
                     'success': False,
                     'error': 'Nieprawidłowy status "{}". Dozwolone: {}'.format(
-                        nowy_status, sorted(dozwolone_statusy))
+                        nowy_status, sorted(zmiana_statusu.DOZWOLONE_STATUSY))
                 }), 400
 
         # PRZED pierwszą próbą zapisu i przed jakimkolwiek commitem albo rollbackiem: po nich `current_user.id`
@@ -1410,7 +1222,7 @@ def bulk_action():
 
         if action == 'update_status':
             # Zmiana statusu może zmienić zamówienie (reguła uniewaznij_etapy), więc zapis blokuje najpierw
-            # zamówienia, potem pozycje, obie listy bieżącym odczytem (patrz _zablokuj_zamowienia_i_pozycje), a przed
+            # zamówienia, potem pozycje, obie listy bieżącym odczytem (patrz zmiana_statusu.zablokuj_zamowienia_i_pozycje), a przed
             # nimi — globalną blokadę tras (decyzja Konrada 2.10, A2: odmowa dla zamówień z trasy w drodze).
             # Jedno automatyczne ponowienie po zakleszczeniu MySQL 1213, tym samym wzorem co zmiana sposobu
             # dostawy w panelu Logistyki: ścieżki spoza zasady „zamówienie najpierw” (ręczna synchronizacja
@@ -1429,7 +1241,12 @@ def bulk_action():
                 results = _zapisz_zmiane_statusu(product_ids, nowy_status, user_id)
             if results is None:
                 return jsonify({'success': False, 'error': 'Nie znaleziono produktów'}), 404
+            # Klucze serwisu dla tabletu kierownika (`pozycje` to obiekty ORM, nie serializują się): odpowiedź
+            # panelu zostaje taka, jak była. `zdjete_stanowiska` panel dostaje tylko przy sukcesie.
+            for klucz in ('pozycje', 'nieznane', 'nowe_stanowisko'):
+                results.pop(klucz, None)
             if not results['success']:
+                results.pop('zdjete_stanowiska', None)
                 # Decyzja Konrada 2.10 (A2): wszystkie zaznaczone pozycje są w zamówieniach z trasy załadowanej albo
                 # w drodze — odmowa bez zapisów, z komunikatem w `error` (panel pokazuje go w oknie błędu).
                 return jsonify(results), 409

@@ -33,5 +33,5 @@ def test_pasek_logistyki_dashboardu_liczy_brak_sposobu():
 
 
 def test_bulk_action_odrzuca_logistyke():
-    kod = _plik('modules', 'production', 'routers', 'api', 'products_api.py')
+    kod = _plik('modules', 'production', 'services', 'zmiana_statusu.py')   # lista statusów mieszka w serwisie hurtu
     assert "- {'czeka_na_logistyke'}" in kod
