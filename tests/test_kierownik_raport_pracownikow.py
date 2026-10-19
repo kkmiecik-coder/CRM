@@ -389,3 +389,39 @@ def test_raporty_bez_wartosci(app, client, tablet):
         assert 'wartosc' not in tekst and 'value_net' not in tekst, sciezka
     # Wartość pozycji (1000 zł) siedzi w bazie, a serwis przerobu ją liczy — DTO nie ma jej wydać.
     assert worker_stats_service.raport_wydajnosci(PON, PON)['summary']['pieces'] > 0
+
+
+# ── m2 Lakierni (§8.6) ───────────────────────────────────────────────────────────────────────────────────────
+
+def _blat_lakierni(wykonczenie, dlugosc, szerokosc, ilosc=2, grubosc=4):
+    p = _poz(quantity=ilosc)
+    p.parsed_finish_type = wykonczenie
+    p.parsed_length_cm, p.parsed_width_cm, p.parsed_thickness_cm = dlugosc, szerokosc, grubosc
+    db.session.commit()
+    return p
+
+
+def test_m2_lakierni_tylko_dla_pracownika_z_praca_na_lakierni(app, client, tablet):
+    lakiernik, formatowacz = _pracownik('Lakiernik'), _pracownik('Formatowacz')
+    # 200x60x4 cm: 2,608 m2 na sztukę (x2 = 5,216); 100x100x4 cm: 2,16 m2 na sztukę.
+    _zdarzenie(_blat_lakierni('olejowane', 200, 60), 'painting', 2, _o(PON, 9), kto=[lakiernik])
+    _zdarzenie(_blat_lakierni('lakierowane', 100, 100), 'painting', 1, _o(PON, 10), kto=[lakiernik])
+    _zdarzenie(_blat_lakierni('lakierowane', 100, 100), 'formatting', 1, _o(PON, 11), kto=[formatowacz])
+
+    dane = _ok(client, tablet, '/reports/workers', start_date='2026-08-10', end_date='2026-08-10')
+
+    assert _wiersz(dane, lakiernik)['m2'] == {'olejowane': 5.216, 'lakierowane': 2.16}
+    assert 'm2' not in _wiersz(dane, formatowacz)
+    raport = worker_stats_service.raport_wydajnosci(PON, PON)
+    wzor = next(w for w in raport['worker_totals'] if w['worker_id'] == lakiernik.id)['painting_m2']
+    assert wzor == {'oiled': 5.216, 'lacquered': 2.16}
+
+
+def test_m2_brak_klucza_gdy_nikt_nie_pracowal_na_lakierni(app, client, tablet):
+    adam = _pracownik('Adam')
+    _zdarzenie(_poz(), 'formatting', 2, _o(PON, 9), kto=[adam])
+    _sesja(_pracownik('Bez pracy'), 'painting', PON)       # sesja na Lakierni bez pracy: bez m2
+
+    dane = _ok(client, tablet, '/reports/workers', start_date='2026-08-10', end_date='2026-08-10')
+
+    assert all('m2' not in w for w in dane['pracownicy'])

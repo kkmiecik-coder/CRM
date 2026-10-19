@@ -20,6 +20,7 @@ from modules.production.kierownik.services import zamowienia as zam
 from modules.production.models import get_local_now
 from modules.production.services import daily_report_service as dzienny
 from modules.production.services import reports_service, station_events_service, worker_stats_service
+from modules.production.services.reports_service import STANOWISKO_LAKIERNI
 from modules.production.services.station_catalog import STATION_ORDER, resolve_station_code, station_label
 
 # Najdłuższy zakres raportów w dniach (obie granice włącznie).
@@ -161,6 +162,7 @@ def pracownicy(start, end, station=None):
       ułamki; `nieprzypisane` to praca bez wybranego profilu na tablecie;
     - `godziny` to OBECNOŚĆ, czyli suma wszystkich sesji pracownika (także kierownika i trakowni); otwarta sesja liczy
       się do teraz, najwyżej do limitu bezczynności i godziny nocnego zamknięcia;
+    - `m2` ({olejowane, lakierowane}) ma tylko pracownik z pracą na Lakierni; to jej właściwa jednostka;
     - `tempo_m3_h` dzieli m³ przez godziny z sesji na stanowiskach procesu, więc sesja kierownika albo trakowni go nie
       zaniża; to `None` (nie zero), gdy pracownik nie ma przypisanej pracy albo ani minuty na stanowisku procesu;
     - tempa NIE porównujemy między stanowiskami: m³ na różnych stanowiskach to różna praca, dlatego lista jest po
@@ -185,7 +187,7 @@ def pracownicy(start, end, station=None):
     for w in raport['worker_totals']:
         praca = wg_stanowisk.get(w['worker_id'], {})
         kody = sorted(praca, key=_kolejnosc_procesu)
-        ludzie.append({
+        wpis = {
             'id': w['worker_id'],
             'nazwa': w['worker_name'],
             'sztuki': w['pieces'],
@@ -196,7 +198,12 @@ def pracownicy(start, end, station=None):
             'otwarta_sesja': w['open_sessions'] > 0,
             'wg_stanowisk': [{'stanowisko': kod, 'sztuki': round(praca[kod][0], 2), 'm3': _m3(praca[kod][1])}
                              for kod in kody],
-        })
+        }
+        # Lakiernia mierzy robotę w m2, nie w m3. Klucz tylko dla pracownika z pracą na Lakierni (jak `m2` w wierszu
+        # Lakierni panelu); mapa nazw: serwis `painting_m2` {oiled, lacquered} -> {olejowane, lakierowane}.
+        if STANOWISKO_LAKIERNI in praca:
+            wpis['m2'] = {'olejowane': w['painting_m2']['oiled'], 'lakierowane': w['painting_m2']['lacquered']}
+        ludzie.append(wpis)
 
     podsumowanie = raport['summary']
     return {
