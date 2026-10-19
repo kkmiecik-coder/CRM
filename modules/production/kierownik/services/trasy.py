@@ -77,12 +77,10 @@ def _dto_trasy(dane):
         'pojazd': {'nazwa': pojazd['name'], 'rejestracja': pojazd['registration']} if pojazd is not None else None,
         'kierowca': dane['kierowca'],
         'notatka': dane['notatka'],
-        'podsumowanie': dict(
-            {k: podsumowanie[k] for k in KLUCZE_PODSUMOWANIA},
-            # Linie proste dają kilometry w linii prostej i nieznany czas; kontrakt: wtedy null.
-            km=None if przyblizony else podsumowanie['km'],
-            minuty=None if przyblizony else podsumowanie['minuty'],
-            przyblizony=przyblizony),
+        # Jak w panelu: przy liniach prostych `km` to suma odcinków w linii prostej (liczba zaniżona wobec jazdy drogami),
+        # `minuty` są null (brak czasu dla linii prostych), a `przyblizony` ostrzega czytelnika (kontrakt §8.1).
+        'podsumowanie': dict({k: podsumowanie[k] for k in KLUCZE_PODSUMOWANIA},
+                             km=podsumowanie['km'], minuty=podsumowanie['minuty'], przyblizony=przyblizony),
         'postep': dane['postep'],
         'zatwierdzona': dane['zatwierdzona'],
         'zaladowana': dane['zaladowana'],

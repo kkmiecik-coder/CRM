@@ -144,12 +144,13 @@ def test_lista_ksztalt_naglowka_trasy(app, client, tablet):
     assert w['postep'] == {'przystanki': 2, 'zaladowane': 0, 'dostarczone': 0, 'niedostarczone': 0, 'zdjete': 0}
 
 
-def test_km_i_minuty_null_gdy_przebieg_przyblizony(app, client, tablet):
+def test_przyblizony_przebieg_ma_km_w_linii_prostej_a_minuty_null(app, client, tablet):
+    """Jak w panelu (kontrakt §8.1): linie proste dają km (suma odcinków, zaniżona) i minuty null; flaga ostrzega."""
     t, _ = _dwa_punkty_trasy()
     t.geometry_approx, t.distance_km, t.duration_min = True, 412.3, None
     db.session.commit()
     p = _ok(client, tablet, '/routes')['trasy'][0]['podsumowanie']
-    assert (p['przyblizony'], p['km'], p['minuty']) == (True, None, None)
+    assert (p['przyblizony'], p['km'], p['minuty']) == (True, 412.3, None)
 
     t.geometry_approx, t.distance_km, t.duration_min = False, 412.3, 300
     db.session.commit()
