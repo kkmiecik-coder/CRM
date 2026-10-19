@@ -63,6 +63,22 @@ def wczytaj_parametry(args):
 
 # ── klocki DTO ───────────────────────────────────────────────────────────────────────────────────────────────────
 
+# Klucze `postep` z kontraktu §8.1; nowe pola panelu nie trafiają na tablet bez decyzji.
+KLUCZE_POSTEPU = ('przystanki', 'zaladowane', 'dostarczone', 'niedostarczone', 'zdjete')
+
+
+def _kierowca(kierowca):
+    """Kierowca z §8.1: tylko `id` i `nazwa`, pole po polu (telefon czy inne dane kierowcy nigdy nie wchodzą)."""
+    if kierowca is None:
+        return None
+    return {'id': kierowca['id'], 'nazwa': kierowca['nazwa']}
+
+
+def _postep(postep):
+    """Postęp Dostawy z §8.1: wyłącznie klucze z `KLUCZE_POSTEPU`."""
+    return {klucz: postep[klucz] for klucz in KLUCZE_POSTEPU}
+
+
 def _dto_trasy(dane):
     """Nagłówek trasy z §8.1 z wyniku `routes.serializuj_trase` (z podsumowaniem i postępem)."""
     podsumowanie, pojazd = dane['podsumowanie'], dane['pojazd']
@@ -75,13 +91,13 @@ def _dto_trasy(dane):
         'status': dane['status'],
         'status_etykieta': dostawa.NAZWY_STATUSOW_TRASY.get(dane['status'], dane['status']),
         'pojazd': {'nazwa': pojazd['name'], 'rejestracja': pojazd['registration']} if pojazd is not None else None,
-        'kierowca': dane['kierowca'],
+        'kierowca': _kierowca(dane['kierowca']),
         'notatka': dane['notatka'],
         # Jak w panelu: przy liniach prostych `km` to suma odcinków w linii prostej (liczba zaniżona wobec jazdy drogami),
         # `minuty` są null (brak czasu dla linii prostych), a `przyblizony` ostrzega czytelnika (kontrakt §8.1).
         'podsumowanie': dict({k: podsumowanie[k] for k in KLUCZE_PODSUMOWANIA},
                              km=podsumowanie['km'], minuty=podsumowanie['minuty'], przyblizony=przyblizony),
-        'postep': dane['postep'],
+        'postep': _postep(dane['postep']),
         'zatwierdzona': dane['zatwierdzona'],
         'zaladowana': dane['zaladowana'],
         'wyjazd': dane['wyjazd'],

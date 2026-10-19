@@ -397,6 +397,113 @@ def test_pelne_stanowisko_bez_pamieci_podrecznej(app, client, tablet):
     assert r.status_code == 200 and 'no-store' in r.headers['Cache-Control']
 
 
+# ── jeden przebieg widoku na stanowisko i łagodna awaria warstwy priorytetów ───────────────────────────────
+
+def _zlicz_dane_stanowiska(monkeypatch):
+    """Podmienia `widok._dane_stanowiska` na licznik wywołań (z oryginałem w środku); zwraca listę kodów."""
+    wywolania = []
+    oryginal = widok._dane_stanowiska
+
+    def _liczy(kod):
+        wywolania.append(kod)
+        return oryginal(kod)
+    monkeypatch.setattr(widok, '_dane_stanowiska', _liczy)
+    return wywolania
+
+
+def test_jeden_przebieg_dane_stanowiska_na_stanowisko(app, client, tablet, monkeypatch):
+    """Przegląd liczy każde stanowisko ze stołem raz (nie dwa razy), pełne stanowisko też raz — to ma znaczenie
+    zwłaszcza w odpowiedziach zapisów stołu, liczonych pod blokadą stanowiska."""
+    ustaw('priorytety_tryb_formatting', 'stol')
+    zam(('czeka_na_formatowanie',) * 2)
+    wywolania = _zlicz_dane_stanowiska(monkeypatch)
+
+    ok(client, tablet, '/stations')
+    assert sorted(wywolania) == sorted(k for k in KOLEJNOSC if k != 'painting')
+
+    del wywolania[:]
+    ok(client, tablet, '/stations/formatting')
+    assert wywolania == ['formatting']
+
+
+def _zepsuj_priorytety(monkeypatch):
+    def _pada(kod):
+        raise RuntimeError('awaria warstwy priorytetów')
+    monkeypatch.setattr(widok, '_dane_stanowiska', _pada)
+
+
+def test_przeglad_przezywa_blad_priorytetow(app, client, tablet, monkeypatch):
+    """Awaria warstwy priorytetów: 200, liczniki dnia i obsada zostają, stanowiska ze stołem dostają
+    `blad_priorytetow: true` (liczniki stołu null), Lakiernia (bez stołu) liczy się normalnie — jak zakładka w webie."""
+    kto = pracownik()
+    sesja(kto, 'formatting')
+    zam(('czeka_na_formatowanie',) * 2)
+    zam(('czeka_na_lakiernie',))
+    _zepsuj_priorytety(monkeypatch)
+
+    przeglad = ok(client, tablet, '/stations')
+
+    assert [s['kod'] for s in przeglad['stanowiska']] == KOLEJNOSC
+    for kod in KOLEJNOSC:
+        s = stanowisko_w(przeglad, kod)
+        assert s['blad_priorytetow'] is (kod != 'painting'), kod
+        assert isinstance(s['statystyki']['oczekuje'], int) and isinstance(s['statystyki']['m3_dzis'], float), kod
+    formatowanie = stanowisko_w(przeglad, 'formatting')
+    assert formatowanie['statystyki']['oczekuje'] == 2
+    assert formatowanie['ma_stol'] is True and (formatowanie['tryb'], formatowanie['jednostka']) == (None, None)
+    assert all(formatowanie['statystyki'][p] is None for p in
+               ('na_stole', 'miejsca', 'odlozone', 'limit_odlozen', 'kolejka_dalej', 'widm', 'niekompletnych'))
+    assert [o['id'] for o in formatowanie['obsada']] == [kto.id]
+    assert stanowisko_w(przeglad, 'painting')['statystyki']['oczekuje'] == 1
+    assert przeglad['suma']['oczekuje'] == 3 and przeglad['suma']['odlozone'] == 0
+
+
+def test_pelne_przezywa_blad_priorytetow(app, client, tablet, monkeypatch):
+    """To samo dla pełnego stanowiska: 200, liczniki dnia, puste listy i `blad_priorytetow: true`; sesja nadaje się
+    do dalszej pracy (rollback), więc kolejny odczyt przechodzi."""
+    zam(('czeka_na_formatowanie',) * 2)
+    _zepsuj_priorytety(monkeypatch)
+
+    dane = ok(client, tablet, '/stations/formatting')
+
+    assert dane['blad_priorytetow'] is True and dane['ma_stol'] is True
+    assert dane['statystyki']['oczekuje'] == 2
+    assert (dane['stol'], dane['odlozone'], dane['widma'], dane['niekompletne']) == ([], [], [], [])
+    assert dane['kolejka'] == {'lacznie': None, 'kafle': []}
+    assert biala_lista.zakazane_w(dane) == []
+    monkeypatch.undo()
+    assert ok(client, tablet, '/stations/formatting')['blad_priorytetow'] is False
+
+
+def test_pelne_lakiernia_przezywa_blad_listy(app, client, tablet, monkeypatch):
+    zam(('czeka_na_lakiernie',) * 2)
+
+    def _pada(*args, **kwargs):
+        raise RuntimeError('awaria listy Lakierni')
+    monkeypatch.setattr(stanowiska.statystyki_stanowisk, 'lista_lakierni', _pada)
+
+    dane = ok(client, tablet, '/stations/painting')
+
+    assert dane['blad_priorytetow'] is True and dane['statystyki']['oczekuje'] == 2
+    assert dane['kolejka'] == {'lacznie': 2, 'kafle': []}
+
+
+def test_zdrowa_odpowiedz_ma_blad_priorytetow_false(app, client, tablet):
+    zam(('czeka_na_formatowanie',))
+    assert all(s['blad_priorytetow'] is False for s in ok(client, tablet, '/stations')['stanowiska'])
+    assert ok(client, tablet, '/stations/formatting')['blad_priorytetow'] is False
+    assert ok(client, tablet, '/stations/painting')['blad_priorytetow'] is False
+
+
+def test_pelne_bez_lagodnego_trybu_przepuszcza_wyjatek(app, monkeypatch):
+    """Odpowiedzi zapisów stołu wołają `pelne` w transakcji zapisu: tam rollback cofnąłby zapis, więc wyjątek ma
+    iść dalej (domyślnie `lagodnie=False`)."""
+    _zepsuj_priorytety(monkeypatch)
+    with pytest.raises(RuntimeError):
+        stanowiska.pelne('formatting', 50)
+    assert stanowiska.pelne('formatting', 50, lagodnie=True)['blad_priorytetow'] is True
+
+
 # ── odczyty niczego nie piszą, nie blokują i nie dopełniają stołu ───────────────────────────────────────────
 
 def test_odczyt_nie_dopelnia_stolu(app, client, tablet, monkeypatch):

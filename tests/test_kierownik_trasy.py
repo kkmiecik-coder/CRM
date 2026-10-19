@@ -438,3 +438,13 @@ def test_etag_szczegolow_max_age_0(app, client, tablet):
     db.session.commit()
     r = _get(client, tablet, '/routes/%d' % t.id, naglowki_dodatkowe={'If-None-Match': etag})
     assert r.status_code == 200 and r.get_json()['trasa']['notatka'] == 'Nowa notatka'
+
+
+def test_kierowca_i_postep_budowane_pole_po_polu():
+    """Nowe pola panelu w `kierowca` albo `postep` (np. telefon kierowcy) nie trafiają na tablet bez decyzji."""
+    assert trasy._kierowca(None) is None
+    assert trasy._kierowca({'id': 21, 'nazwa': 'Piotr Nowak', 'telefon': '500100200', 'phone': '1'}) == \
+        {'id': 21, 'nazwa': 'Piotr Nowak'}
+    postep = dict.fromkeys(trasy.KLUCZE_POSTEPU, 1)
+    assert set(trasy._postep(dict(postep, kontakt='x'))) == {
+        'przystanki', 'zaladowane', 'dostarczone', 'niedostarczone', 'zdjete'}

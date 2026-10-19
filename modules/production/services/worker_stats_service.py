@@ -537,6 +537,9 @@ def obsada_stanowisk(szczegoly=False):
         # Jeden pracownik potrafił mieć 13 sesji, krążąc między składaniem,
         # wycinaniem, formatowaniem i krawędziami. „Na stanowisku od 11:10"
         # przy człowieku pracującym tam od 8:59 to nie informacja, to szum.
+        # Wyjątek: pod `szczegoly=True` pole `od` (start bieżącej sesji) dostaje tablet kierownika hali (kontrakt
+        # docs/api-mobile-kierownik.md §7.5). Tablet ma je pokazywać wyłącznie jako początek bieżącej sesji na
+        # stanowisku, nie jako czas pracy; początek dnia pracy to `pierwsze_dzis`.
         osoba = {
             'id': wid,
             'imie': imie or '',

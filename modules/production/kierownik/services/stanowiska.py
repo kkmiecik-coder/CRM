@@ -5,15 +5,20 @@ Stanowiska w API tabletu kierownika hali (kontrakt: docs/api-mobile-kierownik.md
 Same ZWYKŁE odczyty: bez blokad, bez zapisów, bez commitów i — przede wszystkim — BEZ dopełniania stołu. Stół
 dopełnia wyłącznie `GET desk` tabletów stanowisk (CLAUDE.md, „Dopełnianie tylko w `GET desk`”): podgląd kierownika
 nie może przesunąć cudzej pracy ani brać blokad stanowiska, zamówień i pozycji. Dlatego tu wołamy wyłącznie
-`widok.stoly_panelu`, `widok.kolejka_stanowiska` i `statystyki_stanowisk` (też zwykłe odczyty), a nigdy `stol.*`.
+`widok.stol_i_kolejka` (to samo co `stoly_panelu` + `kolejka_stanowiska`, ale jeden przebieg `_dane_stanowiska`) i
+`statystyki_stanowisk` (też zwykłe odczyty), a nigdy `stol.*`.
 
 Kafle przepisujemy z widoku pole po polu (te same nazwy co w monitorze i na tablecie stanowiska); DTO budujemy od
 zera, z białej listy pól — nic spoza kontraktu nie wycieka.
 """
+from extensions import db
+from modules.logging import get_structured_logger
 from modules.production.models import get_local_now
 from modules.production.priorytety.services import ustawienia, widok
 from modules.production.services import statystyki_stanowisk, worker_stats_service
 from modules.production.services.station_catalog import STATION_ORDER, station_label
+
+logger = get_structured_logger('production.kierownik.stanowiska')
 
 LIMIT_DOMYSLNY = 50
 LIMIT_MAKSIMUM = widok.LIMIT_KOLEJKI_MAX
@@ -96,6 +101,8 @@ def _statystyki(kod, dzis, ma_stol, stol=None, kolejka=None):
     """
     Liczniki stanowiska (§7.1). Liczby dnia z jednej definicji z zakładką Stanowiska (`statystyki_stanowisk`),
     stół i kolejka z widoku. Lakiernia nie ma stołu: wszystkie jej oczekujące pozycje są „w kolejce dalej”.
+    Gdy warstwa priorytetów padła (`stol` i `kolejka` to None, a `ma_stol` prawda), liczniki stołu są null:
+    nie znamy ich, a zera udawałyby pusty stół.
     """
     liczby = statystyki_stanowisk.statystyki(kod, dzis)
     wynik = {
@@ -103,7 +110,12 @@ def _statystyki(kod, dzis, ma_stol, stol=None, kolejka=None):
         'ukonczono_dzis': liczby['today_completed'],
         'm3_dzis': round(liczby['today_volume'], 4),
     }
-    if ma_stol:
+    if ma_stol and stol is None:
+        wynik.update({
+            'na_stole': None, 'miejsca': None, 'odlozone': None, 'limit_odlozen': None,
+            'kolejka_dalej': None, 'widm': None, 'niekompletnych': None,
+        })
+    elif ma_stol:
         wynik.update({
             'na_stole': len(stol['stol']), 'miejsca': stol['miejsca'],
             'odlozone': len(stol['odlozone']), 'limit_odlozen': stol['limit_odlozen'],
@@ -119,52 +131,79 @@ def _statystyki(kod, dzis, ma_stol, stol=None, kolejka=None):
 
 
 def _naglowek(kod, ma_stol, stol=None):
-    """kod, nazwa, tryb, jednostka, ma_stol. Lakiernia: zawsze `stary` (jej stołu nie ma, `ustawienia` nie pytamy)."""
+    """
+    kod, nazwa, tryb, jednostka, ma_stol. Lakiernia: zawsze `stary` (jej stołu nie ma, `ustawienia` nie pytamy).
+    Stanowisko ze stołem bez wiersza `stol` (warstwa priorytetów padła) ma `tryb` i `jednostka` null.
+    """
+    if ma_stol and stol is None:
+        return {'kod': kod, 'nazwa': station_label(kod), 'tryb': None, 'jednostka': None, 'ma_stol': True}
     if ma_stol:
         return {'kod': kod, 'nazwa': station_label(kod), 'tryb': stol['tryb'], 'jednostka': stol['jednostka'],
                 'ma_stol': True}
     return {'kod': kod, 'nazwa': station_label(kod), 'tryb': 'stary', 'jednostka': 'pozycja', 'ma_stol': False}
 
 
-def _stoly_i_kolejki():
+def _warstwa_priorytetow(funkcja, lagodnie, kod):
     """
-    ({kod: wiersz `widok.stoly_panelu`}, {kod: `widok.kolejka_stanowiska` ze wszystkimi niekompletnymi}) dla
-    stanowisk ze stołem. Kolejka z limitem maksymalnym, żeby `niekompletne` było pełne (liczy je statystyka);
-    wołający przycina kafle do własnego limitu.
+    Wynik `funkcja()` (odczyt z warstwy priorytetów) albo `None`, gdy ta padła, a `lagodnie` jest prawdą. Tak samo jak
+    zakładka Stanowiska w webie (`stations_api._priorytety_stanowisk`): wyjątek → rollback zepsutej migawki sesji,
+    log i ekran bez stołu i kolejki zamiast 500. Rollback wolno robić WYŁĄCZNIE w czystym odczycie (GET po commicie
+    `require_device_token`); w transakcji zapisu stołu cofnąłby sam zapis, więc tam `lagodnie=False` i wyjątek idzie
+    dalej (dekorator idempotencji cofa całość i odpowiada błędem).
     """
-    stoly = {wiersz['stanowisko']: wiersz for wiersz in widok.stoly_panelu()}
-    kolejki = {kod: widok.kolejka_stanowiska(kod, limit=LIMIT_MAKSIMUM) for kod in stoly}
-    return stoly, kolejki
+    if not lagodnie:
+        return funkcja()
+    try:
+        return funkcja()
+    except Exception as e:
+        db.session.rollback()
+        logger.error('Kierownik: stół i kolejka stanowiska niedostępne', extra={'station': kod, 'error': str(e)})
+        return None
+
+
+def _stol_i_kolejka(kod, lagodnie):
+    """(wiersz stołu, kolejka) jednego stanowiska z jednego przebiegu widoku; (None, None) po awarii (patrz wyżej)."""
+    wynik = _warstwa_priorytetow(lambda: widok.stol_i_kolejka(kod, limit=LIMIT_MAKSIMUM), lagodnie, kod)
+    return wynik if wynik is not None else (None, None)
 
 
 def przeglad():
-    """§7.1: przegląd 7 stanowisk (nagłówki, liczniki, obsada) bez list kafli, suma i czas wyliczenia."""
+    """
+    §7.1: przegląd 7 stanowisk (nagłówki, liczniki, obsada) bez list kafli, suma i czas wyliczenia. To czysty odczyt,
+    więc awaria warstwy priorytetów jednego stanowiska nie psuje całego ekranu: ono dostaje `blad_priorytetow: true`
+    i liczniki dnia (reszta stanowisk liczy się normalnie).
+    """
     dzis = get_local_now().date()
-    stoly, kolejki = _stoly_i_kolejki()
     ludzie = _obsada()
     stanowiska = []
     for kod in STATION_ORDER:
-        stol = stoly.get(kod)
-        ma_stol = stol is not None
+        ma_stol = kod not in ustawienia.STANOWISKA_BEZ_STOLU
+        stol, kolejka = _stol_i_kolejka(kod, lagodnie=True) if ma_stol else (None, None)
         wiersz = _naglowek(kod, ma_stol, stol)
-        wiersz['statystyki'] = _statystyki(kod, dzis, ma_stol, stol, kolejki.get(kod))
+        wiersz['statystyki'] = _statystyki(kod, dzis, ma_stol, stol, kolejka)
+        wiersz['blad_priorytetow'] = ma_stol and stol is None
         wiersz['obsada'] = [_osoba_w_przegladzie(o) for o in ludzie.get(kod, [])]
         stanowiska.append(wiersz)
     suma = {
         'oczekuje': sum(s['statystyki']['oczekuje'] for s in stanowiska),
         'ukonczono_dzis': sum(s['statystyki']['ukonczono_dzis'] for s in stanowiska),
         'm3_dzis': round(sum(s['statystyki']['m3_dzis'] for s in stanowiska), 4),
-        'odlozone': sum(s['statystyki']['odlozone'] for s in stanowiska),
+        'odlozone': sum(s['statystyki']['odlozone'] or 0 for s in stanowiska),
     }
     return {'stanowiska': stanowiska, 'suma': suma, 'wyliczono': _teraz().isoformat()}
 
 
-def pelne(kod, limit=LIMIT_DOMYSLNY):
+def pelne(kod, limit=LIMIT_DOMYSLNY, lagodnie=False):
     """
     §7.2: pełne stanowisko `kod` — stół, odłożone, widma, niekompletne i kolejka do `limit` kafli. Nieznany kod → None
-    (odpowiedź 404 `stanowisko_nieznane`). Stół i kolejka z `widok.stoly_panelu` i `widok.kolejka_stanowiska`: ta sama
-    definicja co zakładka Stanowiska i tablet. Widma: wszystkie trzy rodzaje, jak w panelu (pozycja już nie czeka,
-    zamówienie bez pozycji na stanowisku, kafel innej jednostki).
+    (odpowiedź 404 `stanowisko_nieznane`). Stół i kolejka z `widok.stol_i_kolejka` (jeden przebieg
+    `_dane_stanowiska`; wartości te same co `widok.stoly_panelu` i `widok.kolejka_stanowiska`): ta sama definicja co
+    zakładka Stanowiska i tablet. Widma: wszystkie trzy rodzaje, jak w panelu (pozycja już nie czeka, zamówienie bez
+    pozycji na stanowisku, kafel innej jednostki).
+
+    `lagodnie=True` (tylko `GET`, czysty odczyt): awaria warstwy priorytetów daje stanowisko z licznikami dnia,
+    `blad_priorytetow: true` i pustymi listami zamiast wyjątku. Odpowiedzi zapisów stołu (liczone w transakcji pod
+    blokadą stanowiska) wołają z `lagodnie=False`: rollback cofnąłby tam sam zapis.
     """
     if kod not in STATION_ORDER:
         return None
@@ -175,19 +214,28 @@ def pelne(kod, limit=LIMIT_DOMYSLNY):
         wiersz = _naglowek(kod, False)
         wiersz['statystyki'] = _statystyki(kod, dzis, False)
         wiersz['obsada'] = osoby
+        kafle = _warstwa_priorytetow(lambda: statystyki_stanowisk.lista_lakierni(dzis, limit), lagodnie, kod)
+        wiersz['blad_priorytetow'] = kafle is None
         wiersz.update({
             'stol': [], 'odlozone': [], 'widma': [], 'niekompletne': [],
             # Lista Lakierni obejmuje wszystkie oczekujące pozycje, więc `lacznie` = licznik oczekujących.
-            'kolejka': {'lacznie': wiersz['statystyki']['oczekuje'],
-                        'kafle': statystyki_stanowisk.lista_lakierni(dzis, limit)},
+            'kolejka': {'lacznie': wiersz['statystyki']['oczekuje'], 'kafle': kafle or []},
         })
         return wiersz
 
-    stol = widok.stoly_panelu([kod])[0]
-    kolejka = widok.kolejka_stanowiska(kod, limit=LIMIT_MAKSIMUM)
+    stol, kolejka = _stol_i_kolejka(kod, lagodnie)
+    if stol is None:
+        wiersz = _naglowek(kod, True)
+        wiersz['statystyki'] = _statystyki(kod, dzis, True)
+        wiersz['blad_priorytetow'] = True
+        wiersz['obsada'] = osoby
+        wiersz.update({'stol': [], 'odlozone': [], 'widma': [], 'niekompletne': [],
+                       'kolejka': {'lacznie': None, 'kafle': []}})
+        return wiersz
     jednostka = stol['jednostka']
     wiersz = _naglowek(kod, True, stol)
     wiersz['statystyki'] = _statystyki(kod, dzis, True, stol, kolejka)
+    wiersz['blad_priorytetow'] = False
     wiersz['obsada'] = osoby
     wiersz.update({
         'stol': [_kafel_stolu(k, jednostka) for k in stol['stol']],

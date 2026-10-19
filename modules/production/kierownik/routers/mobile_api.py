@@ -101,7 +101,7 @@ def pelne_stanowisko(kod):
         limit = stanowiska.wczytaj_limit(request.args.get('limit'))
     except stanowiska.BladLimitu as e:
         return blad('dane_niepoprawne', str(e), 400)
-    dane = stanowiska.pelne(kod, limit)
+    dane = stanowiska.pelne(kod, limit, lagodnie=True)      # czysty odczyt: awaria priorytetów nie daje 500
     return no_store_json(dane)
 
 

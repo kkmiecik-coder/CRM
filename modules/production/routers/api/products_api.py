@@ -22,7 +22,6 @@ from modules.production.logistics import sposoby
 from modules.production.services import blokady_zamowien, zmiana_statusu
 from modules.production.services.archiwum_zamowien import (
     warunek_archiwum as _archived_order_condition,
-    data_zakonczenia_expr as _archive_completed_expr,
     zapytanie_archiwum as _archive_orders_query,
     statystyki_archiwum as _archive_stats,
     etapy_zamowien as _archive_order_stages,

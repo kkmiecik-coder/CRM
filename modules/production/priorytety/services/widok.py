@@ -523,15 +523,21 @@ def _niekompletne(dane, wiersz):
     }
 
 
-def kolejka_stanowiska(kod, limit=LIMIT_KOLEJKI):
+def _sprawdz_stanowisko_ze_stolem(kod):
+    if kod not in STATION_PENDING_STATUS or kod in ustawienia.STANOWISKA_BEZ_STOLU:
+        raise ValueError('Nieznane stanowisko albo stanowisko bez stołu: %r' % (kod,))
+
+
+def kolejka_stanowiska(kod, limit=LIMIT_KOLEJKI, dane=None):
     """
     Podgląd tego, co stół stanowiska `kod` wziąłby jako następne (Doprecyzowania p. 7): ten sam
     `kolejka.kandydaci_stanowiska` co stół, kafle ze stołu i odłożone pominięte. Kolejność kafli = wynik algorytmu.
     `limit` przycina listy kafli i niekompletnych (`lacznie` liczy wszystkie kafle). Nieznany kod → ValueError.
+    `dane` — gotowy wynik `_dane_stanowiska(kod)` (wołający, który liczy też stół, czyta go raz — `stol_i_kolejka`).
     """
-    if kod not in STATION_PENDING_STATUS or kod in ustawienia.STANOWISKA_BEZ_STOLU:
-        raise ValueError('Nieznane stanowisko albo stanowisko bez stołu: %r' % (kod,))
-    dane = _dane_stanowiska(kod)
+    _sprawdz_stanowisko_ze_stolem(kod)
+    if dane is None:
+        dane = _dane_stanowiska(kod)
     kandydaci = dane['kandydaci']
     if dane['jednostka'] == 'zamowienie':
         kafle = [_kafel_zamowienia(dane, order_id) for order_id in kandydaci.kafle[:limit]]
@@ -742,11 +748,13 @@ def _widma(wiersze, opisy):
              'opis': opisy[w.id]} for w in wiersze]
 
 
-def _stol_stanowiska(kod):
+def _stol_stanowiska(kod, dane=None):
     """Wiersz `GET /stoly` jednego stanowiska: ustawienia, stół i odłożone w kolejności tabletu, licznik kolejki,
-    widma (wiersze stołu bez kafla do pokazania)."""
+    widma (wiersze stołu bez kafla do pokazania). `dane` — gotowy wynik `_dane_stanowiska(kod)` (patrz
+    `stol_i_kolejka`); funkcja go nie zmienia."""
     from modules.production.priorytety.services import stol   # import lokalny: `stol` importuje ten moduł
-    dane = _dane_stanowiska(kod)
+    if dane is None:
+        dane = _dane_stanowiska(kod)
     # Kafle ze stołu nie są kandydatami, więc `dane['pozycje_stanowiska']` ich nie ma — do opisu kafli budujemy
     # wejście jeszcze raz, bez ukrywania stołu (czysta funkcja, zero zapytań).
     wszystkie, statusy = wejscie_kandydatow(kod, list(dane['zamowienia'].values()), list(dane['pozycje'].values()),
@@ -830,6 +838,18 @@ def stoly_panelu(stanowiska=None):
         wybrane = set(stanowiska)
         kody = [kod for kod in kody if kod in wybrane]
     return [_stol_stanowiska(kod) for kod in kody]
+
+
+def stol_i_kolejka(kod, limit=LIMIT_KOLEJKI):
+    """
+    (wiersz `stoly_panelu` stanowiska `kod`, wynik `kolejka_stanowiska(kod, limit)`) z JEDNEGO przebiegu
+    `_dane_stanowiska` — te same wartości co dwa osobne wywołania, za połowę zapytań i algorytmu kandydatów.
+    Dla wołających, którzy potrzebują obu (tablet kierownika hali, także w transakcji zapisu stołu, gdzie krótszy
+    czas pod blokadą stanowiska znaczy krótsze czekanie `GET desk`). Nieznane stanowisko albo bez stołu → ValueError.
+    """
+    _sprawdz_stanowisko_ze_stolem(kod)
+    dane = _dane_stanowiska(kod)
+    return _stol_stanowiska(kod, dane), kolejka_stanowiska(kod, limit=limit, dane=dane)
 
 
 def lokalizacja_na_stolach(order_id):

@@ -442,6 +442,7 @@ Przegląd wszystkich 7 stanowisk: nagłówki i liczniki, bez list kafli. ETag, `
       "tryb": "stol",
       "jednostka": "zamowienie",
       "ma_stol": true,
+      "blad_priorytetow": false,
       "statystyki": {
         "oczekuje": 37, "ukonczono_dzis": 12, "m3_dzis": 1.8422,
         "na_stole": 3, "miejsca": 3, "odlozone": 1, "limit_odlozen": 3,
@@ -463,6 +464,7 @@ Przegląd wszystkich 7 stanowisk: nagłówki i liczniki, bez list kafli. ETag, `
 | `tryb` | `stary` (stanowisko pracuje listą) albo `stol` (stół K miejsc). Stoły włącza admin w Konfiguracji |
 | `jednostka` | `pozycja` (kafel = pozycja) albo `zamowienie` (kafel = zamówienie: Formatowanie, Pakowanie) |
 | `ma_stol` | false tylko dla Lakierni (lista w grupach wykończenia, bez „Na stół”) |
+| `blad_priorytetow` | `true`, gdy serwer nie zdołał policzyć stołu i kolejki tego stanowiska (awaria warstwy priorytetów; tak samo jak w zakładce Stanowiska w panelu). Wtedy odpowiedź jest zwykłym 200: są `oczekuje`, `ukonczono_dzis`, `m3_dzis` i `obsada`, a `tryb`, `jednostka` i pozostałe liczniki stołu (`na_stole`, `miejsca`, `odlozone`, `limit_odlozen`, `kolejka_dalej`, `widm`, `niekompletnych`) mają wartość `null`. Appka pokazuje liczniki dnia i krótką informację „stół i kolejka chwilowo niedostępne”, bez ekranu błędu, i odświeża przy następnym odpytaniu. Poza awarią zawsze `false` |
 | `oczekuje` | pozycje w statusie stanowiska |
 | `ukonczono_dzis`, `m3_dzis` | pozycje zakończone dziś na stanowisku i ich m³ |
 | `na_stole` / `miejsca` | zajęte i wszystkie miejsca stołu |
@@ -482,6 +484,7 @@ Pełne stanowisko. Parametr `limit` (długość kolejki): domyślnie 50, najwyż
   "tryb": "stol",
   "jednostka": "zamowienie",
   "ma_stol": true,
+  "blad_priorytetow": false,
   "statystyki": { "...": "jak w §7.1" },
   "obsada": [ "...jak w §7.1" ],
   "stol": [
@@ -556,6 +559,13 @@ to lista w kolejności tabletu Lakierni (grupy wykończenia). Każda pozycja: `p
 `numer`, `gwiazdki`, `dorobka`, `termin`, `dni_do_terminu`, `grupa` (nazwa grupy wykończenia), `material`.
 
 Odczyt **niczego nie zmienia**: nie dopełnia stołu (to robią tablety stanowisk).
+
+**`blad_priorytetow`** (jak w §7.1): `true`, gdy serwer nie zdołał policzyć stołu i kolejki (awaria warstwy
+priorytetów). Odpowiedź to nadal 200: `statystyki` mają liczniki dnia (`oczekuje`, `ukonczono_dzis`, `m3_dzis`),
+a `stol`, `odlozone`, `widma`, `niekompletne` i `kolejka.kafle` są pustymi listami, `kolejka.lacznie` jest `null`
+(`tryb`, `jednostka` i liczniki stołu w `statystyki` także `null`; Lakiernia traci tylko listę). Appka pokazuje liczniki i
+informację zamiast ekranu błędu. Odpowiedzi zapisów §7.3 i §7.4 niosą `stanowisko` zawsze z `blad_priorytetow: false`:
+awaria priorytetów w trakcie zapisu cofa cały zapis i kończy się błędem 500, nie połową odpowiedzi.
 
 **Błędy:** 404 `stanowisko_nieznane`, 400 `dane_niepoprawne` (zły `limit`).
 
@@ -637,6 +647,12 @@ Usuwa kafel ze stołu albo z odłożonych (także widmo). Pozycja zostaje na sta
 
 Lista obejmuje wszystkie stanowiska w kolejności z §4.1, także te bez osób (`osoby: []`). Liczą się sesje
 otwarte i z dzisiejszą datą pracy. `bezczynnosc_min` to minuty od ostatniej akcji produkcyjnej pracownika.
+
+**`od` nie jest czasem pracy.** To początek BIEŻĄCEJ sesji pracownika na tym stanowisku, a sesja zaczyna się od nowa
+przy każdym przełączeniu profilu na tablecie (zmierzone na produkcji: pracownik krążący między stanowiskami miał
+w ciągu dnia kilkanaście sesji, część krótszych niż dwie minuty). Panel webowy świadomie go nie pokazuje. Appka nie
+może go podpisywać jako „na stanowisku od 11:10” ani sugerować nim przepracowanych godzin; początek dnia pracy to
+`pierwsze_dzis`, a „na bieżąco” mówi `bezczynnosc_min`.
 
 ---
 
