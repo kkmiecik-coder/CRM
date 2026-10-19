@@ -33,15 +33,22 @@ from .station_events_service import ZRODLA_AUTOMATU, get_station_work_per_day
 from .worker_stats_service import raport_wydajnosci
 
 
-def _granice_doby(dzien):
+def granice_zakresu(start, end):
     """
-    (początek, koniec) doby jako naive datetime w czasie lokalnym.
+    (początek, koniec) zakresu dób od `start` do `end` WŁĄCZNIE jako naive datetime w czasie lokalnym.
 
     Ta sama konwencja co worker_stats_service.granice_zakresu(): koniec to
-    23:59:59.999999, więc zdarzenie z ostatniej sekundy dnia jeszcze się łapie.
+    23:59:59.999999, więc zdarzenie z ostatniej sekundy ostatniego dnia jeszcze
+    się łapie. Bez walidacji długości — tę robi wołający (raport dzienny zawsze
+    pyta o jedną dobę, tablet kierownika o najwyżej 92 dni).
     """
-    return (datetime.combine(dzien, time.min),
-            datetime.combine(dzien, time.max))
+    return (datetime.combine(start, time.min),
+            datetime.combine(end, time.max))
+
+
+def _granice_doby(dzien):
+    """(początek, koniec) jednej doby — zakres od `dzien` do `dzien`."""
+    return granice_zakresu(dzien, dzien)
 
 
 # Statusy, które nie są zaległością: praca skończona albo odwołana.
@@ -51,15 +58,13 @@ def _granice_doby(dzien):
 _STATUSY_POZA_BACKLOGIEM = sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)
 
 
-def _cofniecia_stanowisk(dzien):
+def _cofniecia_stanowisk(poczatek, koniec):
     """
-    {kod_stanowiska: liczba cofniętych sztuk} — wartość DODATNIA.
+    {kod_stanowiska: liczba cofniętych sztuk w zakresie} — wartość DODATNIA.
 
     Osobne zapytanie, bo panel nie ma odpowiednika: get_station_work_per_day()
     zwraca wyłącznie netto, w którym cofnięcia są niewidoczne.
     """
-    poczatek, koniec = _granice_doby(dzien)
-
     wiersze = db.session.query(
         ProductionStationEvent.station_code,
         func.sum(ProductionStationEvent.delta),
@@ -124,28 +129,35 @@ def _koszyki_terminow(dzien):
     return koszyki
 
 
-def _przerob_stanowisk(dzien, cofniecia, kolejki, zamowienia):
+def _przerob_stanowisk(poczatek, koniec, cofniecia, kolejki, zamowienia):
     """
-    Sztuki, m³ i wartość netto per stanowisko za jeden dzień, wzbogacone
-    o liczbę zamówień, cofnięcia i stan kolejki.
+    Sztuki, m³ i wartość netto per stanowisko za zakres (`poczatek`..`koniec`,
+    zwykle jedna doba), wzbogacone o liczbę zamówień, cofnięcia i stan kolejki.
 
     get_station_work_per_day() zwraca komplet trzech liczb w jednym zapytaniu
     i ma już w środku filtr źródeł oraz wzór wartości (total_value_net * delta
     / quantity). Wołamy je siedem razy, po jednym na stanowisko — przy jednym
     przebiegu dziennie koszt jest bez znaczenia, a alternatywą byłoby
-    przepisanie tych samych trzech sum drugi raz.
+    przepisanie tych samych trzech sum drugi raz. Funkcja oddaje wynik dzień po
+    dniu, więc dla zakresu sumujemy dni; dla jednej doby to jeden wpis, czyli
+    dokładnie to samo co wcześniej.
+
+    `wartosc_netto` liczy się dalej, bo żywi XLSX; tablet kierownika jej nie
+    wydaje (kontrakt §11).
     """
+    od, do = poczatek.date(), koniec.date()
     wynik = []
     for kod in STATION_ORDER:
-        dzienne = get_station_work_per_day(kod, dzien, dzien).get(dzien, {})
+        dni = list(get_station_work_per_day(kod, od, do).values())
         kolejka = kolejki.get(kod, {'sztuki': 0, 'm3': 0.0})
         wynik.append({
             'kod': kod,
             'etykieta': STATION_LABELS[kod],
             'zamowienia': zamowienia.get(kod, 0),
-            'sztuki': int(dzienne.get('pieces', 0) or 0),
-            'm3': float(dzienne.get('m3', 0) or 0),
-            'wartosc_netto': float(dzienne.get('value_net', 0) or 0),
+            'sztuki': sum(int(d.get('pieces', 0) or 0) for d in dni),
+            # Start sumy 0.0: stanowisko bez pracy ma dawać 0.0 (float) jak dotąd, nie int 0.
+            'm3': sum((float(d.get('m3', 0) or 0) for d in dni), 0.0),
+            'wartosc_netto': sum((float(d.get('value_net', 0) or 0) for d in dni), 0.0),
             'cofniecia': cofniecia.get(kod, 0),
             'kolejka_szt': kolejka['sztuki'],
             'kolejka_m3': kolejka['m3'],
@@ -179,20 +191,18 @@ def _zdarzenia_pracownikow(dzien):
     return {wid: int(ile or 0) for wid, ile in wiersze}
 
 
-def _zamowienia_stanowisk(dzien):
+def _zamowienia_stanowisk(poczatek, koniec):
     """
-    {kod_stanowiska: liczba zamówień dotkniętych na nim w ciągu doby}.
+    {kod_stanowiska: liczba zamówień dotkniętych na nim w zakresie}.
 
-    Ta sama definicja „dotknięcia" co w _zasieg_dnia(): zamówienie liczy się,
+    Ta sama definicja „dotknięcia" co w _zasieg(): zamówienie liczy się,
     gdy przy którejś jego pozycji padło choć jedno zdarzenie człowieka.
 
     UWAGA dla konsumenta: tych liczb NIE WOLNO sumować między stanowiskami.
-    Jedno zamówienie zwykle przechodzi przez kilka stanowisk tego samego dnia,
-    więc suma kolumny policzyłaby je wielokrotnie — łączną liczbę unikalnych
-    zamówień daje wyłącznie _zasieg_dnia().
+    Jedno zamówienie zwykle przechodzi przez kilka stanowisk w tym samym
+    zakresie, więc suma kolumny policzyłaby je wielokrotnie — łączną liczbę
+    unikalnych zamówień daje wyłącznie _zasieg().
     """
-    poczatek, koniec = _granice_doby(dzien)
-
     wiersze = db.session.query(
         ProductionStationEvent.station_code,
         func.count(func.distinct(ProductionOrder.baselinker_order_id)),
@@ -210,9 +220,34 @@ def _zamowienia_stanowisk(dzien):
     return {kod: int(ile or 0) for kod, ile in wiersze}
 
 
-def _zasieg_dnia(dzien):
+def _pozycje_stanowisk(poczatek, koniec):
     """
-    (liczba pozycji, liczba zamówień) dotkniętych w ciągu doby.
+    {kod_stanowiska: liczba pozycji dotkniętych na nim w zakresie}.
+
+    „Dotknięta" jak w _zasieg(): było przy niej choć jedno zdarzenie człowieka.
+    Tak samo jak _zamowienia_stanowisk(), tych liczb NIE WOLNO sumować między
+    stanowiskami: jedna pozycja przechodzi przez kilka stanowisk, a łączną liczbę
+    unikalnych pozycji daje wyłącznie _zasieg().
+    """
+    wiersze = db.session.query(
+        ProductionStationEvent.station_code,
+        func.count(func.distinct(ProductionStationEvent.production_item_id)),
+    ).join(
+        # Ten sam join co w _zasieg() i _zamowienia_stanowisk(): zdarzenie bez pozycji nie jest „dotknięciem".
+        ProductionProduct,
+        ProductionProduct.id == ProductionStationEvent.production_item_id,
+    ).filter(
+        ProductionStationEvent.created_at >= poczatek,
+        ProductionStationEvent.created_at <= koniec,
+        ~ProductionStationEvent.source.in_(ZRODLA_AUTOMATU),
+    ).group_by(ProductionStationEvent.station_code).all()
+
+    return {kod: int(ile or 0) for kod, ile in wiersze}
+
+
+def _zasieg(poczatek, koniec):
+    """
+    (liczba pozycji, liczba zamówień) dotkniętych w zakresie.
 
     Świadomie liczymy POZYCJE DOTKNIĘTE, a nie „pozycje z dodatnim netto"
     jak get_station_work_in_range(): tamta funkcja działa w obrębie jednego
@@ -220,8 +255,6 @@ def _zasieg_dnia(dzien):
     nie ma sensownej interpretacji. „Dotknięta" znaczy: było przy niej
     przynajmniej jedno zdarzenie człowieka.
     """
-    poczatek, koniec = _granice_doby(dzien)
-
     return db.session.query(
         func.count(func.distinct(ProductionStationEvent.production_item_id)),
         func.count(func.distinct(ProductionOrder.baselinker_order_id)),
@@ -274,9 +307,9 @@ def _ludzie(dzien):
     }
 
 
-def _trakownia(dzien):
+def _trakownia(poczatek, koniec):
     """
-    Kłody i m³ przetarte danego dnia.
+    Kłody i m³ przetarte w zakresie (zwykle jednej dobie).
 
     Liczone po `measured_at` (czas z tabletu), nie po `created_at` (czas
     wpłynięcia na serwer) — tak samo jak sawmill_dashboard_stats. Tablet
@@ -287,8 +320,6 @@ def _trakownia(dzien):
     przed wejściem na produkcję, więc doliczenie jej m³ liczyłoby ten sam
     materiał dwa razy.
     """
-    poczatek, koniec = _granice_doby(dzien)
-
     ile, metry = db.session.query(
         func.count(SawmillLog.id),
         func.coalesce(func.sum(SawmillLog.volume_m3), 0),
@@ -328,7 +359,7 @@ def _zakonczone(stanowiska):
     }
 
 
-def _wykonanie(stanowiska, dzien):
+def _wykonanie(stanowiska, poczatek, koniec):
     """
     Sumy przez WSZYSTKIE stanowiska — miara ruchu na hali, NIE wynik dnia.
 
@@ -339,10 +370,10 @@ def _wykonanie(stanowiska, dzien):
     te liczby kłamią i nie wolno ich tak podpisywać — od tego jest
     _zakonczone(). Jako obraz obłożenia hali mają sens i dlatego zostają.
 
-    `pozycje` i `zamowienia` tej wady nie mają — liczy je _zasieg_dnia()
+    `pozycje` i `zamowienia` tej wady nie mają — liczy je _zasieg()
     po unikatach.
     """
-    pozycje, zamowienia = _zasieg_dnia(dzien)
+    pozycje, zamowienia = _zasieg(poczatek, koniec)
     return {
         'sztuki': sum(s['sztuki'] for s in stanowiska),
         'm3': sum(s['m3'] for s in stanowiska),
@@ -374,17 +405,19 @@ def zbierz_dane(dzien=None):
         i report_mailer, które NIE sięgają po dane samodzielnie.
     """
     dzien = dzien or get_local_now().date()
+    poczatek, koniec = _granice_doby(dzien)
 
-    stanowiska = _przerob_stanowisk(dzien, _cofniecia_stanowisk(dzien),
+    stanowiska = _przerob_stanowisk(poczatek, koniec,
+                                    _cofniecia_stanowisk(poczatek, koniec),
                                     _kolejki_stanowisk(),
-                                    _zamowienia_stanowisk(dzien))
+                                    _zamowienia_stanowisk(poczatek, koniec))
 
     return {
         'dzien': dzien,
         'zakonczone': _zakonczone(stanowiska),
-        'wykonanie': _wykonanie(stanowiska, dzien),
+        'wykonanie': _wykonanie(stanowiska, poczatek, koniec),
         'ludzie': _ludzie(dzien),
-        'trakownia': _trakownia(dzien),
+        'trakownia': _trakownia(poczatek, koniec),
         'stanowiska': stanowiska,
         'terminy': _koszyki_terminow(dzien),
     }

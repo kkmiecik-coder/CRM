@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.kierownik.services import bramka, stanowiska, trakownia, trasy, zamowienia
+from modules.production.kierownik.services import bramka, raporty, stanowiska, trakownia, trasy, zamowienia
 from modules.production.kierownik.services.bramka import blad, wymaga_kierownika
 from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA
 from modules.production.models import ProductionOrder
@@ -174,6 +174,31 @@ def zlecenie_trakowni(order_id):
     if dane is None:
         return blad('zlecenie_nieznane', u'Nie ma takiego zlecenia trakowni.', 404)
     return no_store_json(dane)
+
+
+# --- Raporty (odczyty; kontrakt §8.5, §8.6, §8.7) ----------------------------------------------------------------
+# Wspólny zakres dat (`raporty.zakres`): oba końce albo żaden, domyślnie dziś, najwyżej 92 dni, inaczej 400
+# `zakres_niepoprawny`. Czyste odczyty, `no-store`: zakres „dziś" zmienia się co chwilę, a dalsze zakresy appka może
+# sama trzymać po swojej stronie.
+
+def _zakres_raportu():
+    """(start, koniec, None) albo (None, None, odpowiedź 400 `zakres_niepoprawny`)."""
+    try:
+        start, koniec = raporty.zakres(request.args)
+    except raporty.BladZakresu as e:
+        return None, None, blad('zakres_niepoprawny', str(e), 400)
+    return start, koniec, None
+
+
+@kierownik_mobile_bp.route('/reports/stations', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def raport_stanowisk():
+    """Przerób stanowisk w zakresie: sztuki, m³, pozycje, zamówienia, cofnięcia i kolejka teraz (§8.5). `no-store`."""
+    start, koniec, odmowa = _zakres_raportu()
+    if odmowa is not None:
+        return odmowa
+    return no_store_json(raporty.stanowiska(start, koniec))
 
 
 # --- Zapisy -----------------------------------------------------------------------------------------------------
