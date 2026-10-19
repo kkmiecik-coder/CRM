@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.kierownik.services import bramka, stanowiska, trasy, zamowienia
+from modules.production.kierownik.services import bramka, stanowiska, trakownia, trasy, zamowienia
 from modules.production.kierownik.services.bramka import blad, wymaga_kierownika
 from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA
 from modules.production.models import ProductionOrder
@@ -144,6 +144,36 @@ def szczegoly_trasy(route_id):
     if if_none_match(etag):
         return not_modified(etag, max_age=0)
     return cached_json(dane, etag, max_age=0)
+
+
+# --- Trakownia (odczyty; kontrakt §8.3, §8.4) -------------------------------------------------------------------
+# Deklaracje, pomiary i różnice w m³ oraz procentach; bez cen, wartości i notatek rozliczenia (services/trakownia.py).
+
+@kierownik_mobile_bp.route('/sawmill/orders', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def lista_trakowni():
+    """Zlecenia trakowni: otwarte i dostawy z 90 dni, albo wg filtrów (§8.3). Słaby ETag, `max-age=15`."""
+    try:
+        parametry = trakownia.wczytaj_parametry(request.args)
+    except trakownia.BladParametru as e:
+        return blad('dane_niepoprawne', str(e), 400)
+    dane = trakownia.lista(**parametry)
+    etag = trakownia.etag_listy(dane)
+    if if_none_match(etag):
+        return not_modified(etag, max_age=MAX_AGE_LISTY)
+    return cached_json(dane, etag, max_age=MAX_AGE_LISTY)
+
+
+@kierownik_mobile_bp.route('/sawmill/orders/<int:order_id>', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def zlecenie_trakowni(order_id):
+    """Zlecenie trakowni z kłodami, pracownikami i średnimi (§8.4). `no-store`."""
+    dane = trakownia.zlecenie(order_id)
+    if dane is None:
+        return blad('zlecenie_nieznane', u'Nie ma takiego zlecenia trakowni.', 404)
+    return no_store_json(dane)
 
 
 # --- Zapisy -----------------------------------------------------------------------------------------------------
