@@ -23,6 +23,8 @@ ENDPOINTY_KIEROWNIKA = [
     ('GET', '/stations'),
     ('GET', '/stations/<kod>'),
     ('GET', '/workers/now'),
+    ('POST', '/stations/<kod>/desk'),
+    ('POST', '/stations/<kod>/desk/remove'),
 ]
 
 _licznik = itertools.count(1)

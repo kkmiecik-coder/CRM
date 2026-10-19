@@ -119,6 +119,16 @@ def _numer(order):
     return order.internal_order_number or u'#%d' % order.id
 
 
+def numer_zamowienia(order):
+    """Numer zamówienia do komunikatów dla ludzi: numer wewnętrzny albo `#<id>`; brak zamówienia → `?`."""
+    return _numer(order)
+
+
+def nazwa_w_dopelniaczu(station_code):
+    """Stanowisko w dopełniaczu do komunikatów o stole („na stole Formatowania”); nieznany kod → jego nazwa."""
+    return _NAZWA_DOPELNIACZ.get(station_code, station_label(station_code))
+
+
 def imie_z_inicjalem(imie, nazwisko):
     """
     Pracownik na ekranach hali — tablet (`desk`, „Odłożone”) i monitory: imię + inicjał nazwiska, „Adam K.”
@@ -897,7 +907,7 @@ def _wiersze_do_zapisu(station_code, klucze):
     return wiersze
 
 
-def wyslij(station_code, order_id, user_id, *, teraz=None):
+def wyslij(station_code, order_id, user_id, *, worker_id=None, device_id=None, teraz=None):
     """
     „Wyślij na stanowisko” (spec 5.7, ustalenie 18): biuro kładzie na stół stanowiska kafle zamówienia, które są
     TERAZ w statusie tego stanowiska — bez przeskakiwania procesu. Jednostka `pozycja`: każda taka pozycja jako
@@ -910,6 +920,11 @@ def wyslij(station_code, order_id, user_id, *, teraz=None):
 
     Odmowy (`BladStolu`): 409 `stanowisko_bez_stolu` (Lakiernia), 404 `zamowienie_nieznane`, 409
     `brak_na_stanowisku`. Sposobu dostawy nie sprawdzamy: od logistyki 4.6 Pakowanie go nie wymaga (spec 5.1).
+
+    Kto wysyła: panel biura podaje `user_id` (zapis w `sent_by_user_id`); tablet kierownika hali podaje `worker_id`
+    i `device_id` (id wiersza `prod_devices`), a `user_id` zostaje None. Pracownik trafia do `sent_by_worker_id`
+    wiersza stołu i do `worker_id`/`device_id` wpisu historii. Same liczby, bez odczytu osoby: wołający już trzyma
+    blokady, a po commicie obiekty ORM są wygasłe.
     """
     wymagaj_stolu(station_code)
     zablokuj_stanowisko(station_code)
@@ -937,7 +952,8 @@ def wyslij(station_code, order_id, user_id, *, teraz=None):
             wynik['juz_na_stole'].append(klucz)
             continue
         log = PriorityLog(action='wyslanie', order_id=zamowienie.id, product_id=product_id,
-                          station_code=station_code, new_value=klucz, user_id=user_id, created_at=teraz)
+                          station_code=station_code, new_value=klucz, user_id=user_id, worker_id=worker_id,
+                          device_id=device_id, created_at=teraz)
         if wiersz is None:
             wiersz = StationDesk(station_code=station_code, order_id=zamowienie.id, product_id=product_id,
                                  unit_key=klucz)
@@ -955,15 +971,17 @@ def wyslij(station_code, order_id, user_id, *, teraz=None):
         wiersz.pulled_at = teraz
         wiersz.zrodlo = stale.ZRODLO_BIURO
         wiersz.sent_by_user_id = user_id
+        wiersz.sent_by_worker_id = worker_id
         db.session.add(log)
     return wynik
 
 
-def zdejmij_przez_biuro(station_code, unit_key_kafla, user_id, *, teraz=None):
+def zdejmij_przez_biuro(station_code, unit_key_kafla, user_id, *, worker_id=None, device_id=None, teraz=None):
     """
     „Zdejmij ze stołu” (spec 5.7): biuro usuwa wiersz stołu — kafel leżący na stole albo odłożony. Pozycja zostaje
     na stanowisku, więc kafel wraca do kolejki (dopełnianie może go wziąć znowu). Służy poprawkom podglądu startu
-    i pomyłkom biura. Zwraca `{'unit_key', 'order_id', 'product_id', 'odlozony'}`. Bez commita.
+    i pomyłkom biura. Zwraca `{'unit_key', 'order_id', 'product_id', 'odlozony'}`. Bez commita. `worker_id` i
+    `device_id` (tablet kierownika hali) trafiają do wpisu historii obok albo zamiast `user_id` panelu.
 
     Odmowy (`BladStolu`): 400 `dane_niepoprawne` (zły klucz kafla), 409 `stanowisko_bez_stolu`, 404 `brak_kafla`.
     """
@@ -983,8 +1001,8 @@ def zdejmij_przez_biuro(station_code, unit_key_kafla, user_id, *, teraz=None):
     db.session.add(PriorityLog(
         action='zdjecie', order_id=wiersz.order_id, product_id=wiersz.product_id, station_code=station_code,
         new_value=unit_key_kafla, old_value='odlozone' if odlozony else wiersz.zrodlo,
-        reason=wiersz.postpone_reason, note=wiersz.postpone_note, user_id=user_id,
-        created_at=teraz or get_local_now()))
+        reason=wiersz.postpone_reason, note=wiersz.postpone_note, user_id=user_id, worker_id=worker_id,
+        device_id=device_id, created_at=teraz or get_local_now()))
     wynik = {'unit_key': unit_key_kafla, 'order_id': wiersz.order_id, 'product_id': wiersz.product_id,
              'odlozony': odlozony}
     db.session.delete(wiersz)

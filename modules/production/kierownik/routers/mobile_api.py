@@ -17,6 +17,8 @@ from modules.logging import get_structured_logger
 from modules.production.kierownik.services import bramka, stanowiska, zamowienia
 from modules.production.kierownik.services.bramka import blad, wymaga_kierownika
 from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA
+from modules.production.models import ProductionOrder
+from modules.production.priorytety.services import stol, sygnaly
 from modules.production.services import blokady_zamowien, worker_service, zmiana_statusu
 from modules.production.services.mobile_api_service import require_device_token, with_idempotency
 from modules.production.utils.cache import cached_json, if_none_match, make_weak_etag, no_store_json, not_modified
@@ -247,3 +249,94 @@ def zmiana_statusu_pozycji():
         return odmowa
     ids, status = wczytane
     return _zapis_z_ponowieniem(lambda kierownik_id: _zmien_status(ids, status, kierownik_id))
+
+
+# --- Stół stanowiska: „Na stół” i „Zdejmij ze stołu” (kontrakt §7.3, §7.4) ---------------------------------------------
+# Kierownik jest tu pisarzem stołu (CLAUDE.md, „Stół stanowiska — dwie klasy pisarzy”): po commicie szkieletu pierwszym
+# odczytem transakcji jest `stol.zablokuj_stanowisko` (woła ją sam serwis), potem zamówienie i jego pozycje
+# `FOR SHARE`, wiersz stołu odczytem bieżącym po pełnym kluczu unikalnym. Żadnych blokad X zamówień i pozycji, żadnej
+# blokady tras. Stan stanowiska w odpowiedzi czytamy zwykłymi odczytami PO tych blokadach, w tej samej transakcji.
+
+def _numer_zamowienia(order_id):
+    """Numer zamówienia do komunikatu. Zamówienie jest już w sesji (zablokowane przez serwis), więc zwykle bez SQL-a;
+    wołać dopiero po blokadach."""
+    return stol.numer_zamowienia(db.session.get(ProductionOrder, order_id))
+
+
+def _poloz_na_stol(kod, order_id, kierownik_id, device_pk):
+    """Akcja zapisu `POST …/desk` wołana po commicie szkieletu. Odmowa serwisu to rollback i błąd kontraktu."""
+    try:
+        wynik = stol.wyslij(kod, order_id, None, worker_id=kierownik_id, device_id=device_pk)
+    except stol.BladStolu as e:
+        db.session.rollback()
+        return blad(e.kod, e.komunikat, e.status)
+    db.session.flush()
+    zmieniono = bool(wynik['wyslane'] or wynik['przywrocone'])
+    numer, stanowisko_gen = _numer_zamowienia(order_id), stol.nazwa_w_dopelniaczu(kod)
+    if zmieniono:
+        # Handler nie commituje (robi to with_idempotency), więc tylko PLANUJE sygnał; dekorator wyśle go po commicie.
+        sygnaly.zaplanuj(kod)
+    cialo = {
+        'message': (u'Zamówienie {} jest na stole {}.' if zmieniono else u'Zamówienie {} już leży na stole {}.').format(
+            numer, stanowisko_gen),
+        'wynik': 'wyslano' if zmieniono else 'juz_na_stole',
+        'wyslane': list(wynik['wyslane']),
+        'przywrocone': list(wynik['przywrocone']),
+        'juz_na_stole': list(wynik['juz_na_stole']),
+        'stanowisko': stanowiska.pelne(kod, stanowiska.LIMIT_DOMYSLNY),
+    }
+    return jsonify(cialo), 200
+
+
+def _zdejmij_ze_stolu(kod, unit_key, kierownik_id, device_pk):
+    """Akcja zapisu `POST …/desk/remove` wołana po commicie szkieletu. Odmowa serwisu to rollback i błąd kontraktu."""
+    try:
+        wynik = stol.zdejmij_przez_biuro(kod, unit_key, None, worker_id=kierownik_id, device_id=device_pk)
+    except stol.BladStolu as e:
+        db.session.rollback()
+        return blad(e.kod, e.komunikat, e.status)
+    db.session.flush()
+    numer, stanowisko_gen = _numer_zamowienia(wynik['order_id']), stol.nazwa_w_dopelniaczu(kod)
+    sygnaly.zaplanuj(kod)
+    miejsce = u'z odłożonych' if wynik['odlozony'] else u'ze stołu'
+    cialo = {
+        'message': u'Zdjęto kafel zamówienia {} {} {}.'.format(numer, miejsce, stanowisko_gen),
+        'unit_key': wynik['unit_key'],
+        'order_id': wynik['order_id'],
+        'product_id': wynik['product_id'],
+        'odlozony': wynik['odlozony'],
+        'stanowisko': stanowiska.pelne(kod, stanowiska.LIMIT_DOMYSLNY),
+    }
+    return jsonify(cialo), 200
+
+
+@kierownik_mobile_bp.route('/stations/<kod>/desk', methods=['POST'])
+@require_device_token
+@wymaga_kierownika
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA, require_operation_id=True)
+def na_stol(kod):
+    """„Na stół” (§7.3): kafle zamówienia, które jest teraz na stanowisku, idą na jego stół (`zrodlo='biuro'`)."""
+    if kod not in stanowiska.STATION_ORDER:
+        return blad('stanowisko_nieznane', u'Nie ma takiego stanowiska.', 404)
+    dane = request.get_json(silent=True)
+    order_id = dane.get('order_id') if isinstance(dane, dict) else None
+    if isinstance(order_id, bool) or not isinstance(order_id, int):
+        return blad('dane_niepoprawne', u'Podaj numer zamówienia (order_id).', 400)
+    device_pk = g.device.id             # przed commitem szkieletu: potem obiekt urządzenia jest wygasły
+    return _zapis_z_ponowieniem(lambda kierownik_id: _poloz_na_stol(kod, order_id, kierownik_id, device_pk))
+
+
+@kierownik_mobile_bp.route('/stations/<kod>/desk/remove', methods=['POST'])
+@require_device_token
+@wymaga_kierownika
+@with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA, require_operation_id=True)
+def zdejmij_ze_stolu(kod):
+    """„Zdejmij ze stołu” (§7.4): usuwa kafel ze stołu albo z odłożonych; pozycja wraca do kolejki stanowiska."""
+    if kod not in stanowiska.STATION_ORDER:
+        return blad('stanowisko_nieznane', u'Nie ma takiego stanowiska.', 404)
+    dane = request.get_json(silent=True)
+    unit_key = dane.get('unit_key') if isinstance(dane, dict) else None
+    if not isinstance(unit_key, str):
+        return blad('dane_niepoprawne', u'Podaj klucz kafla (unit_key) z listy stołu.', 400)
+    device_pk = g.device.id
+    return _zapis_z_ponowieniem(lambda kierownik_id: _zdejmij_ze_stolu(kod, unit_key, kierownik_id, device_pk))

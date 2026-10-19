@@ -668,7 +668,9 @@ def realtime_token():
 
     Kanały przyjeżdżają w tokenie (klient SSE nie subskrybuje sam): stanowisko urządzenia i reszta jego grupy —
     tablet Krawędzi dostaje `station:edges` i `station:painting`. Po sygnale tablet woła `GET desk` (Lakiernia:
-    odświeża listę).
+    odświeża listę). Tablet kierownika hali (stanowisko `manager`) nie ma własnego stołu, ale ogląda wszystkie: dostaje
+    kanały siedmiu stanowisk produkcji w kolejności procesu (kontrakt kierownika §9); po sygnale odświeża przegląd
+    stanowisk albo otwarte stanowisko (`/api/mobile/manager/stations*`), a nie `desk`.
 
     200: {"enabled": true, "token": "<JWT>", "ttl_seconds": 3600, "sse_url": "...", "channels": ["station:gluing"]}
     503: {"enabled": false, "reason": "realtime disabled" | "misconfigured"} — appka zostaje przy odpytywaniu
@@ -676,15 +678,19 @@ def realtime_token():
     404 `unknown_station`: urządzenie spoza stanowisk produktu (trakownia, weryfikacja, dostawa) nie ma stołu.
     """
     stanowisko = resolve_station_code(g.device.station_code)
-    if stanowisko not in STATION_STATUS_MAP:
+    kierownik = stanowisko == 'manager'
+    if not kierownik and stanowisko not in STATION_STATUS_MAP:
         return jsonify({'error': 'unknown_station'}), 404
 
     if not realtime_service.is_enabled():
         return jsonify({'enabled': False, 'reason': 'realtime disabled'}), 503
 
-    # Stanowisko urządzenia pierwsze, potem pozostałe z jego grupy w kolejności procesu.
-    stanowiska = [stanowisko] + [kod for kod in STATION_ORDER
-                                 if kod != stanowisko and device_can_access_station(g.device, kod)]
+    if kierownik:
+        stanowiska = list(STATION_ORDER)        # wszystkie siedem stanowisk, w kolejności procesu
+    else:
+        # Stanowisko urządzenia pierwsze, potem pozostałe z jego grupy w kolejności procesu.
+        stanowiska = [stanowisko] + [kod for kod in STATION_ORDER
+                                     if kod != stanowisko and device_can_access_station(g.device, kod)]
     kanaly = [realtime_service.channel_station(kod) for kod in stanowiska]
     try:
         token, ttl = realtime_service.issue_connection_token('device:' + g.device.device_id, kanaly)

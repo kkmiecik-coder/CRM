@@ -760,8 +760,11 @@ def _stol_stanowiska(kod):
     wroci = _wroci_po_zdjeciu(dane, kod, kandydaci_pelne)
     prefiks = _prefiks_jednostki(dane['jednostka'])
     wiersze = stol.uporzadkuj(dane['stol'])
+    # „Wysłał”: użytkownik panelu (`sent_by_user_id`) albo kierownik hali z tabletu (`sent_by_worker_id`) — web
+    # pokazuje na kaflu to samo nazwisko co tablet. Jeden kafel ma jednego nadawcę; gdyby były oba, wygrywa panel.
     uzytkownicy, pracownicy = _nazwy_osob([w.sent_by_user_id for w in wiersze],
-                                          [w.postponed_by_worker_id for w in wiersze])
+                                          [w.postponed_by_worker_id for w in wiersze]
+                                          + [w.sent_by_worker_id for w in wiersze])
     krotkie = _krotkie_nazwy_pracownikow([w.postponed_by_worker_id for w in wiersze if w.postponed_at is not None])
     na_stole, odlozone, widma, opisy_widm = [], [], [], {}
     for wiersz in wiersze:
@@ -785,7 +788,7 @@ def _stol_stanowiska(kod):
             kafel = _kafel_zamowienia(dane, wiersz.order_id)
             kafel['wroci_przy_dopelnieniu'] = bool(wiersz.zrodlo == stale.ZRODLO_DOROBKA or wroci(wiersz.order_id))
         kafel.update({'unit_key': wiersz.unit_key, 'pobrano': _czas(wiersz.pulled_at), 'zrodlo': wiersz.zrodlo,
-                      'wyslal': uzytkownicy.get(wiersz.sent_by_user_id)})
+                      'wyslal': uzytkownicy.get(wiersz.sent_by_user_id) or pracownicy.get(wiersz.sent_by_worker_id)})
         if wiersz.postponed_at is None:
             na_stole.append(kafel)
         else:
