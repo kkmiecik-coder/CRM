@@ -44,6 +44,7 @@ def _serialize_worker(worker, statystyki=None):
         'sort_order': worker.sort_order or 0,
         'user_id': worker.user_id,
         'worker_code': worker.worker_code,
+        'is_manager': bool(worker.is_manager),
         'deactivated_at': worker.deactivated_at.isoformat() if worker.deactivated_at else None,
     }
     wiersz = (statystyki or {}).get(worker.id, {})
@@ -112,6 +113,7 @@ def workers_create():
             sort_order=dane.get('sort_order', 0),
             user_id=dane.get('user_id'),
             worker_code=dane.get('worker_code'),
+            is_manager=dane.get('is_manager', False),
         )
     except WorkerError as e:
         return _blad(e)
@@ -126,7 +128,7 @@ def workers_create():
 def workers_update(worker_id):
     dane = request.get_json(silent=True) or {}
     dozwolone = {'first_name', 'last_name', 'color_hex', 'allowed_stations',
-                 'sort_order', 'user_id', 'worker_code'}
+                 'sort_order', 'user_id', 'worker_code', 'is_manager'}
     pola = {k: v for k, v in dane.items() if k in dozwolone}
     try:
         worker = worker_service.update_worker(worker_id, **pola)

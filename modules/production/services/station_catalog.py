@@ -52,6 +52,9 @@ STATION_LABELS = {
     # Logistyka etap 4, krok 4.4 — telefon kierowcy (załadunek, wyjazd, dostarczenia). Jak Weryfikacja:
     # poza STATION_ORDER, ale z nazwą, bo kierowca ma tu sesję.
     'delivery': 'Dostawa',
+    # Tablet kierownika hali (2026-10). Jak Weryfikacja i Dostawa: poza STATION_ORDER (nie ma kolejki
+    # statusów produktów), ale z nazwą, bo pracownik ma tu sesję.
+    'manager': 'Kierownik hali',
 }
 
 

@@ -107,3 +107,5 @@ class StationDesk(db.Model):
     zrodlo = Column(String(16), nullable=False, default=stale.ZRODLO_KOLEJKA, server_default=stale.ZRODLO_KOLEJKA)
     # Użytkownik panelu, który wysłał kafel na stół („Wyślij na stanowisko”) albo przygotował start stołów.
     sent_by_user_id = Column(Integer)
+    # Pracownik (kierownik hali), który wysłał kafel na stół z tabletu. Migracja 2026-10-19-kierownik-hali.sql.
+    sent_by_worker_id = Column(Integer)

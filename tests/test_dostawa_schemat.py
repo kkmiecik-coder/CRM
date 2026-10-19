@@ -126,7 +126,8 @@ def test_katalog_pracownikow_ma_znacznik_kierowcy_i_nowy_ksztalt(app, client):
     assert r.status_code == 200, r.get_data()[:300]
     profile = {w['id']: w for w in r.get_json()['workers']}
     assert profile[k.id]['is_driver'] is True and profile[p.id]['is_driver'] is False
-    assert mobile_api.KSZTALT_KATALOGU_PRACOWNIKOW == 2
+    # Kształt 2 dodał is_driver; kształt 3 (2026-10-19) dodał is_manager — is_driver zostaje w katalogu.
+    assert mobile_api.KSZTALT_KATALOGU_PRACOWNIKOW == 3
     # Nowe pole nie zmienia danych, z których liczy się ETag. Bez segmentu kształtu telefon z zapamiętanym
     # katalogiem dostawałby 304 i nie zobaczyłby is_driver (bramka Dostawy pokazuje tylko kierowców).
-    assert r.headers['ETag'].startswith('W/"workers:2:')
+    assert r.headers['ETag'].startswith('W/"workers:3:')

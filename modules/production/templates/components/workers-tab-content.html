@@ -182,7 +182,7 @@
                     <tr data-worker-id="{{ w.id }}" data-active="{{ '1' if w.is_active else '0' }}"
                         {% if not w.is_active %}class="workers-row-inactive" style="display:none"{% endif %}>
                         <td><span class="worker-chip" style="background: {{ w.color_hex }}">{{ w.initials }}</span></td>
-                        <td>{{ w.full_name }}</td>
+                        <td>{{ w.full_name }}{% if w.is_manager %} <span class="badge bg-warning text-dark ms-1">Kierownik hali</span>{% endif %}</td>
                         <td>
                             {% if w.allowed_stations_labels %}
                                 {% for nazwa in w.allowed_stations_labels %}<span class="badge bg-secondary me-1">{{ nazwa }}</span>{% endfor %}
@@ -286,6 +286,15 @@
                         </div>
                     </div>
                     <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="worker-is-manager">
+                            <label class="form-check-label" for="worker-is-manager">Kierownik hali</label>
+                        </div>
+                        <div class="form-text">
+                            Tylko ten pracownik może się zalogować na tablecie Kierownika hali
+                        </div>
+                    </div>
+                    <div class="col-12">
                         <label class="form-label">Stanowiska</label>
                         <div id="worker-stations">
                             {% for kod, nazwa in station_choices %}
@@ -354,6 +363,7 @@
         document.getElementById('worker-color').value = (worker && worker.color_hex) || '#3E7C59';
         document.getElementById('worker-sort-order').value = worker ? worker.sort_order : 0;
         document.getElementById('worker-user-id').value = (worker && worker.user_id) || '';
+        document.getElementById('worker-is-manager').checked = !!(worker && worker.is_manager);
 
         const wybrane = new Set((worker && worker.allowed_stations) || []);
         root.querySelectorAll('.worker-station-cb').forEach(cb => { cb.checked = wybrane.has(cb.value); });
@@ -369,7 +379,8 @@
             color_hex: document.getElementById('worker-color').value,
             sort_order: parseInt(document.getElementById('worker-sort-order').value, 10) || 0,
             allowed_stations: stanowiska,
-            user_id: parseInt(document.getElementById('worker-user-id').value, 10) || null
+            user_id: parseInt(document.getElementById('worker-user-id').value, 10) || null,
+            is_manager: document.getElementById('worker-is-manager').checked
         };
 
         try {

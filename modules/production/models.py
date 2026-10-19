@@ -1201,6 +1201,7 @@ class ProductionDevice(db.Model):
         'sawmill',   # trakownia — rejestr surowca, poza pipeline'em produktów
         'verification',  # Weryfikacja paczek (logistyka etap 4) — telefon biura, poza pipeline'em produktów
         'delivery',      # Dostawa (logistyka etap 4, krok 4.4) — telefon kierowcy, poza pipeline'em produktów
+        'manager',       # Kierownik hali (2026-10) — tablet kierownika, poza pipeline'em produktów
         # Stary tablet wykańczalni jest w bazie zarejestrowany jako 'finishing'
         # i dojeżdża na tej rejestracji do wydania APK. Zdjęcie tej wartości
         # przed czasem daje 403 station_mismatch na każdej akcji z kolejki
@@ -1536,6 +1537,9 @@ class ProductionWorker(db.Model):
     # Logistyka (runda 2): kierowca tras — ustawiany wyłącznie w zakładce Logistyka → Flota
     # (zakładka Pracownicy go nie zna). Migracja 2026-09-28-logistyka-kierowcy.sql.
     is_driver = Column(Boolean, nullable=False, default=False)
+    # Kierownik hali: pracownik, który może zalogować się na tablecie stanowiska `manager`.
+    # Ustawia go admin w zakładce Pracownicy. Migracja 2026-10-19-kierownik-hali.sql.
+    is_manager = Column(Boolean, nullable=False, default=False)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'),
                      nullable=True, index=True,
                      comment='Opcjonalne powiązanie z kontem CRM')

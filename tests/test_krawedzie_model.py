@@ -316,6 +316,7 @@ def test_zbior_kodow_urzadzen_ma_dokladnie_jedenascie_wpisow():
         'edges', 'painting', 'finishing', 'sawmill',
         'verification',   # Weryfikacja paczek (logistyka etap 4, krok 4.3)
         'delivery',       # Dostawa (logistyka etap 4, krok 4.4)
+        'manager',        # Kierownik hali (2026-10)
     }
 
 

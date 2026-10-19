@@ -277,6 +277,8 @@ def serialize_worker_for_mobile(worker, avatar_base_url=None, recent=False):
         'sort_order': worker.sort_order or 0,
         # Logistyka etap 4, krok 4.4: bramka stanowiska Dostawa pokazuje tylko kierowców (Flota → Kierowcy).
         'is_driver': bool(worker.is_driver),
+        # Stanowisko Kierownik hali: bramka pokazuje tylko pracowników z tym znacznikiem (Pracownicy → edycja).
+        'is_manager': bool(worker.is_manager),
     }
 
 
@@ -352,7 +354,7 @@ def _normalize_color(color):
 
 
 def create_worker(first_name, last_name, *, color_hex=None, allowed_stations=None,
-                  sort_order=0, user_id=None, worker_code=None):
+                  sort_order=0, user_id=None, worker_code=None, is_manager=False):
     if not (first_name or '').strip() or not (last_name or '').strip():
         raise WorkerError(422, 'invalid_name', 'Imię i nazwisko są wymagane')
 
@@ -364,6 +366,7 @@ def create_worker(first_name, last_name, *, color_hex=None, allowed_stations=Non
         sort_order=_to_int(sort_order, 0),
         user_id=user_id or None,
         worker_code=(worker_code or '').strip() or None,
+        is_manager=bool(is_manager),
         is_active=True,
     )
     db.session.add(worker)
@@ -395,6 +398,8 @@ def update_worker(worker_id, **pola):
         worker.user_id = pola['user_id'] or None
     if 'worker_code' in pola:
         worker.worker_code = (pola['worker_code'] or '').strip() or None
+    if 'is_manager' in pola:
+        worker.is_manager = bool(pola['is_manager'])
 
     db.session.commit()
     logger.info("Zaktualizowano pracownika", extra={'worker_id': worker.id})

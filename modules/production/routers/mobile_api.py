@@ -157,7 +157,8 @@ KSZTALT_ODPOWIEDZI_STOLU = 2
 # segmentu nie dotarłoby do urządzeń z zapamiętanym katalogiem (304). PODBIJ przy każdej zmianie zestawu pól
 # w worker_service.serialize_worker_for_mobile().
 #   2 — 2026-10-01: `is_driver` (logistyka etap 4, krok 4.4 — bramka stanowiska Dostawa)
-KSZTALT_KATALOGU_PRACOWNIKOW = 2
+#   3 — 2026-10-19: `is_manager` (stanowisko Kierownik hali — bramka pokazuje tylko kierowników)
+KSZTALT_KATALOGU_PRACOWNIKOW = 3
 
 
 def _resolve_workers():
