@@ -229,7 +229,7 @@ def raport_dzien_po_dniu():
 
 # --- Zapisy -----------------------------------------------------------------------------------------------------
 
-MAX_POZYCJI_W_ZADANIU = 500
+MAX_POZYCJI_W_ZADANIU = 20
 OPIS_ZMIANY_STATUSU = u'zmiana statusu przez kierownika hali'
 # Statusy ustawiane z tabletu kierownika (kontrakt §4.1). Zbiór panelu (`zmiana_statusu.DOZWOLONE_STATUSY`) zostaje
 # bez zmian, ale zawiera jeszcze stare `w_realizacji`: pozycja w tym statusie nie stoi w żadnej kolejce stanowiska
@@ -286,7 +286,7 @@ def _wczytaj_zmiane_statusu(dane):
     ((lista identyfikatorów bez powtórzeń w kolejności żądania, status), None) albo (None, odpowiedź błędu
     `dane_niepoprawne` | `status_niedozwolony`). Walidacja przed jakimkolwiek zapisem i przed `_zapis_z_ponowieniem`:
     odrzucone żądanie nie dotyka bazy. Identyfikatory to liczby całkowite JSON (bez bool, ułamków i napisów); limit
-    500 liczy się po usunięciu powtórzeń.
+    20 liczy się po usunięciu powtórzeń.
     """
     if not isinstance(dane, dict):
         return None, blad('dane_niepoprawne', u'Żądanie musi być obiektem JSON z polami product_ids i status.', 400)

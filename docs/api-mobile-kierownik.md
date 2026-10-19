@@ -384,7 +384,7 @@ Content-Type: application/json
 
 | Pole | Wymagane | Uwagi |
 |---|---|---|
-| `product_ids` | tak | 1–500 identyfikatorów pozycji (`product_id`); powtórzenia serwer usuwa. Mogą być z różnych zamówień |
+| `product_ids` | tak | 1–20 identyfikatorów pozycji (`product_id`); powtórzenia serwer usuwa. Mogą być z różnych zamówień. Appka ma sama ograniczyć zaznaczenie do 20, żeby użytkownik nie zbudował żądania, które serwer odrzuci |
 | `status` | tak | kod z §4.1 z kolumną „Kierownik może ustawić” = tak |
 
 ### Ciało 200 (także gdy część pozycji odmówiono)
@@ -417,7 +417,7 @@ Content-Type: application/json
 | Status | Ciało `error` | Kiedy | Zapamiętane pod `X-Operation-Id`? | Co robi appka |
 |---|---|---|---|---|
 | 400 | `missing_operation_id` | brak nagłówka | nie | błąd programisty |
-| 400 | `dane_niepoprawne` | brak/zły `product_ids` (pusty, > 500, nie liczby) | nie | komunikat |
+| 400 | `dane_niepoprawne` | brak/zły `product_ids` (pusty, > 20, nie liczby) | nie | komunikat |
 | 400 | `status_niedozwolony` + `dozwolone: [...]` | status spoza dozwolonych | nie | komunikat |
 | 404 | `pozycje_nieznane` | żadnej z pozycji nie ma | nie | odśwież listę |
 | 409 | `trasa_w_drodze` | **wszystkie** pozycje są w zamówieniach na trasie załadowanej albo w drodze; nic nie zapisano | nie | pokaż `message` |
@@ -984,4 +984,4 @@ Limit czasu żądania w appce: zapis 20 s, odczyt 15 s.
 
 - Wyglądu, nawigacji i kolejności ekranów (sesja appki).
 - Mapy: podkładu, klastrów pinezek, stylu przebiegu.
-- Jak appka grupuje zaznaczanie wielu pozycji do zmiany statusu (API przyjmuje dowolny zbiór do 500).
+- Jak appka grupuje zaznaczanie wielu pozycji do zmiany statusu (API przyjmuje zbiór do 20 pozycji).

@@ -230,7 +230,6 @@ def test_w_realizacji_niedozwolone_400_bez_zapisu(client, tablet):
     {},
     {'status': 'wstrzymane'},
     {'product_ids': [], 'status': 'wstrzymane'},
-    {'product_ids': list(range(1, 502)), 'status': 'wstrzymane'},
     {'product_ids': 5, 'status': 'wstrzymane'},
     {'product_ids': '5', 'status': 'wstrzymane'},
     {'product_ids': ['a'], 'status': 'wstrzymane'},
@@ -253,6 +252,22 @@ def test_powtorzenia_id_sa_usuwane(client, tablet):
     (pid,) = _id_pozycji(z)
     odp = _ok(_zmien(client, tablet, [pid] * 600, 'wstrzymane'))      # po usunięciu powtórzeń: jedno id
     assert odp['zmienione'] == 1 and len(odp['pozycje']) == 1
+
+
+def test_limit_20_pozycji_przechodzi(client, tablet):
+    """Granica: 20 różnych identyfikatorów przechodzi walidację; 19 nieistniejących trafia do `nieznane`."""
+    z = zamowienie(statusy=('czeka_na_formatowanie',), numer_wewnetrzny='26/00712', bl_id=910712)
+    (pid,) = _id_pozycji(z)
+    odp = _ok(_zmien(client, tablet, [pid] + list(range(999001, 999020)), 'wstrzymane'))
+    assert odp['zmienione'] == 1 and len(odp['nieznane']) == 19
+
+
+def test_limit_21_pozycji_400(client, tablet):
+    """Granica: 21 różnych identyfikatorów to 400 `dane_niepoprawne` przed jakimkolwiek zapisem."""
+    r = _zmien(client, tablet, list(range(1, 22)), 'wstrzymane', op_id='op-21')
+    assert r.status_code == 400 and r.get_json()['error'] == 'dane_niepoprawne'
+    assert '20' in r.get_json()['message']                 # komunikat nazywa aktualny limit
+    assert ProcessedMobileOperation.query.count() == 0
 
 
 def test_brak_operation_id_400(client, tablet):
