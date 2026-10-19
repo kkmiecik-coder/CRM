@@ -563,6 +563,70 @@ sekretem — bramką jest zatwierdzenie w zakładce panelu produkcji „Urządze
 Whitelisty IP API mobilnego nie ma (lista `STATION_ALLOWED_IPS` monitorów hali zostaje). **Krok ręczny po wydaniu
 1.9.0:** gdy każde używane urządzenie ma MAC — [Zablokuj urządzenia bez MAC] w zakładce, po przejrzeniu podglądu.
 
+### Tablet kierownika hali
+
+Od 2026-10 stanowisko `manager` (tablet kierownika) ma własne API pod `/api/mobile/manager/*` (16 tras, kontrakt
+`docs/api-mobile-kierownik.md`, pakiet `modules/production/kierownik/`: `routers/mobile_api.py` + `services/`). Nie ma
+kolejki pracy, ZAKOŃCZ ani licznika: kierownik ogląda halę (zamówienia, stanowiska, trasy, trakownię, raporty) i ma
+trzy zapisy — zmianę statusu pozycji, „Na stół” i „Zdejmij ze stołu”. Dostęp wymaga **obu**: urządzenia z kodem
+`manager` (zatwierdzonego w „Urządzeniach mobilnych”, jak każde) i pracownika z `prod_workers.is_manager` (admin
+zaznacza go w zakładce Pracowników; `GET /api/mobile/workers` oddaje pole `is_manager`).
+
+**Bramka** (`services/bramka.py`, `wymaga_kierownika`, po `require_device_token`) dotyczy także odczytów: inne
+stanowisko → 403 `station_not_allowed`, potem `X-Worker-Ids` (liczy się PIERWSZY id) i 403 `not_a_manager` dla
+pracownika nieaktywnego albo bez znacznika. Bramka ustawia `g.worker_ids = [kierownik]`, z czego listener zdarzeń
+pozycji bierze aktora — historia pozycji pokazuje kierownika z imienia. Odpowiedzi są budowane od zera (serializatory,
+nie `to_dict`), a `services/biala_lista.py` (`ZAKAZANE_KLUCZE`: kontakt, adres, ceny, wartości, notatka rozliczenia
+trakowni) pilnuje, żeby żaden klucz pieniężny ani kontaktowy nie wyszedł na żadnym poziomie. Nowa trasa wpisana do
+`ENDPOINTY_KIEROWNIKA` (`tests/kierownik_pomocnicze.py`) dostaje bramkę i kontrolę kluczy w
+`tests/test_kierownik_przekroj.py` bez dopisywania testu; trasa niewpisana wywraca test kompletności listy.
+
+**Odczyty są czyste:** bez blokad, bez commitów (jedyny zapis to znacznik kontaktu urządzenia z
+`require_device_token`), bez przeliczania przebiegu tras przez ORS (`routing.przelicz` woła tylko panel w swoim GET —
+tablet pokazuje ostatni zapisany `przebieg` z flagą `przebieg_nieaktualny`, kilometry mogą być nieświeże) i **bez
+dopełniania stołu** (to robi wyłącznie `GET /api/mobile/stations/<S>/desk` tabletów stanowisk). Karty i odczyty „na
+żywo” mają `no-store`, listy słaby ETag z `max-age=15`.
+
+**Wzór transakcji zapisów** (`_zapis_z_ponowieniem` w `routers/mobile_api.py`, wzór `dostawa_api._zapis`): kierownik
+z bramki → `touch_sessions` → jego id jako zwykła LICZBA (po commicie obiekty sesji są wygasłe, dotknięcie atrybutu
+byłoby odczytem spoza blokad) → `commit` → serwis, którego PIERWSZYM odczytem jest blokada → `flush` w `try`. Jedno
+ponowienie po MySQL 1213, wewnątrz handlera (rollback, porzucenie zaplanowanych sygnałów i przeliczenia rang, cała
+sekwencja od nowa na nowym stanie); drugie 1213 → 500 z rollbackiem. Zapisy mają `with_idempotency(require_operation_id
+=True)`; odmowy 4xx NIE są zapamiętywane pod `X-Operation-Id` (`BLEDY_DO_PONOWIENIA`), a przedłużenie sesji kierownika
+zostaje zapisane także przy odmowie akcji. Sygnały stanowisk i przeliczenie rang handler tylko PLANUJE
+(`sygnaly.zaplanuj`, `kolejka.zaplanuj_po_commicie`) — wysyła je dekorator po commicie.
+
+**Kolejność blokad.** Zmiana statusu to ta sama operacja co hurt w panelu (`zmiana_statusu.zmien_status`, wspólny
+serwis), więc bierze blokady w kolejności hurtu: blokada tras (`routes.zablokuj_trasy()`) → zamówienia rosnąco po id →
+ich pozycje. Z ZAKOŃCZ wspólna jest tylko druga część: ZAKOŃCZ NIE bierze blokady tras, zaczyna od zamówienia swojej
+pozycji (zasada „Zamówienie najpierw”: zamówienie → wszystkie jego pozycje). Blokadę tras biorą wcześniej pisarze,
+którzy mogą zdjąć zamówienie z trasy: hurt, zmiana statusu kierownika, doróbka i zmiana z Base. Nowy zapis statusów
+pozycji z tabletu kierownika zaczyna więc od blokady tras, a nie od zamówienia. **Nie wysyła statusu do Base.**
+(parytet z hurtem w webie; Base. dostaje statusy dopiero od logistyki). Zbiór statusów z tabletu to `DOZWOLONE_STATUSY` bez starego `w_realizacji`
+(`STATUSY_KIEROWNIKA`) — pozycja w nim nie stoi w żadnej kolejce stanowiska. „Na stół” i „Zdejmij ze stołu” są
+**pisarzami stołu** (sekcja „Stół stanowiska — dwie klasy pisarzy”): po commicie `stol.zablokuj_stanowisko` →
+zamówienia `FOR SHARE` rosnąco → pozycje `FOR SHARE` → wiersze stołu zwykłym odczytem → INSERT/DELETE; nigdy blokad X
+zamówień ani pozycji, nigdy blokady tras. „Na stół” kładzie kafle ze źródłem `biuro` PONAD K i działa w trybie `stary`
+oraz `stol`; Lakiernia nie ma stołu (409 `stanowisko_bez_stolu`). Stan stanowiska w odpowiedzi czytamy zwykłymi
+odczytami PO tych blokadach, w tej samej transakcji.
+
+**Tempo pracowników zmieniło się także w panelu.** Raport pracowników kierownika owija wspólny
+`worker_stats_service.raport_wydajnosci`, w którym `tempo_m3_h` dzieli m³ przez minuty sesji TYLKO na stanowiskach
+procesu (`STATION_ORDER`); `godziny` zostają obecnością (wszystkie sesje). Sesja na tablecie kierownika, trakowni,
+Weryfikacji albo Dostawie nie zaniża już tempa — ta zmiana działa też w zakładce Pracownicy panelu i w dziennym XLSX
+(jedna funkcja), więc ich liczby po wdrożeniu różnią się od wcześniejszych dla osób z takimi sesjami.
+
+**Sprawdzone na MySQL (19.10.2026, świeża baza z modeli, wiersze blokad jak z migracji):** trzy wyścigi po 200 rund
+(zmiana statusu kierownika vs ZAKOŃCZ tabletu na tym samym zamówieniu; „Na stół” vs dwa `GET desk` tego stanowiska;
+zmiana statusu kierownika vs hurt z weba na nakładających się zamówieniach) — zero 500, zero zakleszczeń, spójny stół
+(brak widm i duplikatów). Zakres jest wąski: wyłącznie Formatowanie (tryb `stol`, jednostka `zamowienie`, K=1), 2–4
+równoległych wątków na rundę, jedno urządzenie kierownika. Próba NIE objęła zmiany statusu kierownika w wyścigu z
+zapisami tras i Dostawy (panel tras, telefon kierowcy, „Wydane klientowi”) ani z cronem logistyki, ani innych
+stanowisk (pozycyjnych, K>1), więc kolejność blokad względem tych pisarzy opiera się na teście zapisanych zapytań i
+na przeglądzie, a nie na próbie obciążeniowej. Przy braku wierszy blokad w `prod_config` (baza bez migracji, kod zakłada je sam
+`INSERT IGNORE`) pierwsze równoległe żądania zakleszczały się, a ponowienie to łapało; na produkcji wiersze zakłada
+migracja, więc tej ścieżki nie ma.
+
 ## Architecture
 
 ### Application Structure

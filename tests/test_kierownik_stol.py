@@ -228,7 +228,7 @@ def test_zdejmij_z_tabletu_i_brak_kafla(client, tablet, sygnaly):
     odp = _ok(zdejmij(client, tablet, 'formatting', klucz))
 
     assert (odp['unit_key'], odp['order_id'], odp['product_id'], odp['odlozony']) == (klucz, z.id, None, False)
-    assert odp['message']
+    assert odp['message'] == u'Zdjęto kafel zamówienia 26/00911 ze stołu Formatowania.'
     assert StationDesk.query.count() == 0
     log = PriorityLog.query.filter_by(action='zdjecie').one()
     assert (log.worker_id, log.device_id, log.user_id) == (kierownik.id, device.id, None)
@@ -253,10 +253,13 @@ def test_zdejmij_odlozony_kafel_pozycji(client, tablet):
                                unit_key='p:%d' % pozycja.id, postponed_at=get_local_now(),
                                postpone_reason='brak_materialu'))
     db.session.commit()
+    nazwa_pozycji = pozycja.short_product_id or u'#%d' % pozycja.id
 
     odp = _ok(zdejmij(client, tablet, 'gluing', 'p:%d' % pozycja.id))
 
     assert odp['odlozony'] is True and odp['product_id'] == pozycja.id
+    # Kafel pozycji nazwany jej skróconym numerem; odłożone po polsku w miejscowniku („na Sklejaniu”).
+    assert odp['message'] == u'Zdjęto kafel pozycji {} z odłożonych na Sklejaniu.'.format(nazwa_pozycji)
     assert StationDesk.query.count() == 0
 
 

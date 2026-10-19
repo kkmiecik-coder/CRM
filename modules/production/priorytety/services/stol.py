@@ -113,20 +113,21 @@ def klucz_kafla(item, station_code, jednostka=None):
     return klucz_pozycji(item.id)
 
 
-def _numer(order):
+def numer_zamowienia(order):
+    """Numer zamówienia do komunikatów dla ludzi: numer wewnętrzny albo `#<id>`; brak zamówienia → `?`."""
     if order is None:
         return u'?'
     return order.internal_order_number or u'#%d' % order.id
 
 
-def numer_zamowienia(order):
-    """Numer zamówienia do komunikatów dla ludzi: numer wewnętrzny albo `#<id>`; brak zamówienia → `?`."""
-    return _numer(order)
-
-
 def nazwa_w_dopelniaczu(station_code):
     """Stanowisko w dopełniaczu do komunikatów o stole („na stole Formatowania”); nieznany kod → jego nazwa."""
     return _NAZWA_DOPELNIACZ.get(station_code, station_label(station_code))
+
+
+def nazwa_w_miejscowniku(station_code):
+    """Stanowisko w miejscowniku („na Formatowaniu”, „na Krawędziach”); nieznany kod → jego nazwa."""
+    return _NAZWA_MIEJSCOWNIK.get(station_code, station_label(station_code))
 
 
 def imie_z_inicjalem(imie, nazwisko):
@@ -298,7 +299,7 @@ def bramka_zakoncz(item, station_code, device, *, do_zapisu=False):
     if item.current_status != STATION_PENDING_STATUS[station_code]:
         raise BladStolu('pozycja_poza_stanowiskiem', u'Pozycja {} nie czeka na {}.'.format(
             item.short_product_id or u'#%d' % item.id,
-            _NAZWA_MIEJSCOWNIK.get(station_code, station_label(station_code))), 409)
+            nazwa_w_miejscowniku(station_code)), 409)
     jednostka = ustawienia.jednostka(station_code)
     zapytanie = StationDesk.query.filter(StationDesk.station_code == station_code,
                                          StationDesk.unit_key == klucz_kafla(item, station_code, jednostka))
@@ -309,7 +310,7 @@ def bramka_zakoncz(item, station_code, device, *, do_zapisu=False):
     if jednostka == 'zamowienie' and item.order is not None and not kompletne_na(item.order, station_code):
         return
     raise BladStolu('nie_na_stole', u'Zamówienie {} nie leży na stole {}.'.format(
-        _numer(item.order), _NAZWA_DOPELNIACZ.get(station_code, station_label(station_code))), 409)
+        numer_zamowienia(item.order), nazwa_w_dopelniaczu(station_code)), 409)
 
 
 # ══ Pisarze stołu: blokada stanowiska i odczyt kandydatów ═══════════════════════════════════════════════════
@@ -694,7 +695,7 @@ def komunikat_limitu(station_code, liczba, jednostka):
     else:
         czasownik, nazwa = u'leży', formy[2]
     return u'Na {} {} {} {}. Zamknij {}, zanim odłożysz {}.'.format(
-        _NAZWA_MIEJSCOWNIK.get(station_code, station_label(station_code)), czasownik, liczba, nazwa, ktoras, kolejna)
+        nazwa_w_miejscowniku(station_code), czasownik, liczba, nazwa, ktoras, kolejna)
 
 
 def odloz(order_id, product_id, station_code, powod, notatka, worker_id, device_id, *, teraz=None):
@@ -721,8 +722,8 @@ def odloz(order_id, product_id, station_code, powod, notatka, worker_id, device_
               .with_for_update().populate_existing().first())
     if wiersz is None or wiersz.postponed_at is not None:
         raise BladStolu('nie_na_stole', u'Zamówienie {} nie leży na stole {}.'.format(
-            _numer(db.session.get(ProductionOrder, order_id)),
-            _NAZWA_DOPELNIACZ.get(station_code, station_label(station_code))), 409)
+            numer_zamowienia(db.session.get(ProductionOrder, order_id)),
+            nazwa_w_dopelniaczu(station_code)), 409)
 
     odlozonych = (db.session.query(func.count(StationDesk.id))
                   .filter(StationDesk.station_code == station_code, StationDesk.postponed_at.isnot(None)).scalar())
@@ -936,7 +937,7 @@ def wyslij(station_code, order_id, user_id, *, worker_id=None, device_id=None, t
     na_stanowisku = [pozycja for pozycja in zamowienie.products if pozycja.current_status == status]
     if not na_stanowisku:
         raise BladStolu('brak_na_stanowisku', u'Zamówienie {} nie ma teraz żadnej pozycji na {}.'.format(
-            _numer(zamowienie), _NAZWA_MIEJSCOWNIK.get(station_code, station_label(station_code))), 409)
+            numer_zamowienia(zamowienie), nazwa_w_miejscowniku(station_code)), 409)
 
     # Ustawienia po blokadach: to zwykłe odczyty, a pierwszy z nich zakłada migawkę transakcji.
     if ustawienia.jednostka(station_code) == 'zamowienie':

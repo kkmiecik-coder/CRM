@@ -17,8 +17,8 @@ from modules.logging import get_structured_logger
 from modules.production.kierownik.services import bramka, raporty, stanowiska, trakownia, trasy, zamowienia
 from modules.production.kierownik.services.bramka import blad, wymaga_kierownika
 from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA
-from modules.production.models import ProductionOrder
-from modules.production.priorytety.services import stol, sygnaly
+from modules.production.models import ProductionOrder, ProductionProduct
+from modules.production.priorytety.services import kolejka, stol, sygnaly
 from modules.production.services import blokady_zamowien, worker_service, zmiana_statusu
 from modules.production.services.mobile_api_service import require_device_token, with_idempotency
 from modules.production.utils.cache import cached_json, if_none_match, make_weak_etag, no_store_json, not_modified
@@ -258,7 +258,6 @@ def _zapis_z_ponowieniem(akcja):
     dekoratora wypadłoby poza ponowieniem. Drugie 1213 i każdy inny błąd bazy idą dalej (dekorator: rollback i 500,
     wpis niezapamiętany).
     """
-    from modules.production.priorytety.services import kolejka, sygnaly
     device_id = g.device.device_id          # przed pierwszym commitem: potem obiekt urządzenia jest wygasły
     for proba in (1, 2):
         pracownik, odmowa = bramka.kierownik()
@@ -322,7 +321,6 @@ def _zmien_status(ids, status, kierownik_id):
     w bazie, pozycję usuniętą między odczytem id a blokadą i pozycję bez zamówienia (`order_id` NULL), której
     blokada po zamówieniach nie wczytuje. Dla appki to jedno: wiersz znika z widoku (kontrakt §6).
     """
-    from modules.production.priorytety.services import kolejka, sygnaly
     wynik = zmiana_statusu.zmien_status(ids, status, worker_id=kierownik_id, opis=OPIS_ZMIANY_STATUSU)
     if wynik is None:
         db.session.rollback()
@@ -371,12 +369,6 @@ def zmiana_statusu_pozycji():
 # `FOR SHARE`, wiersz stołu odczytem bieżącym po pełnym kluczu unikalnym. Żadnych blokad X zamówień i pozycji, żadnej
 # blokady tras. Stan stanowiska w odpowiedzi czytamy zwykłymi odczytami PO tych blokadach, w tej samej transakcji.
 
-def _numer_zamowienia(order_id):
-    """Numer zamówienia do komunikatu. Zamówienie jest już w sesji (zablokowane przez serwis), więc zwykle bez SQL-a;
-    wołać dopiero po blokadach."""
-    return stol.numer_zamowienia(db.session.get(ProductionOrder, order_id))
-
-
 def _poloz_na_stol(kod, order_id, kierownik_id, device_pk):
     """Akcja zapisu `POST …/desk` wołana po commicie szkieletu. Odmowa serwisu to rollback i błąd kontraktu."""
     try:
@@ -386,7 +378,9 @@ def _poloz_na_stol(kod, order_id, kierownik_id, device_pk):
         return blad(e.kod, e.komunikat, e.status)
     db.session.flush()
     zmieniono = bool(wynik['wyslane'] or wynik['przywrocone'])
-    numer, stanowisko_gen = _numer_zamowienia(order_id), stol.nazwa_w_dopelniaczu(kod)
+    # Zamówienie jest już w sesji (zablokowane przez serwis), więc numer do komunikatu zwykle nie kosztuje SQL-a.
+    numer = stol.numer_zamowienia(db.session.get(ProductionOrder, order_id))
+    stanowisko_gen = stol.nazwa_w_dopelniaczu(kod)
     if zmieniono:
         # Handler nie commituje (robi to with_idempotency), więc tylko PLANUJE sygnał; dekorator wyśle go po commicie.
         sygnaly.zaplanuj(kod)
@@ -410,11 +404,21 @@ def _zdejmij_ze_stolu(kod, unit_key, kierownik_id, device_pk):
         db.session.rollback()
         return blad(e.kod, e.komunikat, e.status)
     db.session.flush()
-    numer, stanowisko_gen = _numer_zamowienia(wynik['order_id']), stol.nazwa_w_dopelniaczu(kod)
+    stanowisko_gen = stol.nazwa_w_dopelniaczu(kod)
+    if wynik['product_id'] is not None:
+        # Kafel pozycji nazywamy jej skróconym numerem, jak w komunikatach stołu (`pozycja_poza_stanowiskiem`).
+        pozycja = db.session.get(ProductionProduct, wynik['product_id'])
+        kafel = u'pozycji {}'.format((pozycja.short_product_id if pozycja is not None else None)
+                                     or u'#%d' % wynik['product_id'])
+    else:
+        kafel = u'zamówienia {}'.format(stol.numer_zamowienia(db.session.get(ProductionOrder, wynik['order_id'])))
     sygnaly.zaplanuj(kod)
-    miejsce = u'z odłożonych' if wynik['odlozony'] else u'ze stołu'
+    if wynik['odlozony']:
+        miejsce = u'z odłożonych na {}'.format(stol.nazwa_w_miejscowniku(kod))
+    else:
+        miejsce = u'ze stołu {}'.format(stanowisko_gen)
     cialo = {
-        'message': u'Zdjęto kafel zamówienia {} {} {}.'.format(numer, miejsce, stanowisko_gen),
+        'message': u'Zdjęto kafel {} {}.'.format(kafel, miejsce),
         'unit_key': wynik['unit_key'],
         'order_id': wynik['order_id'],
         'product_id': wynik['product_id'],
