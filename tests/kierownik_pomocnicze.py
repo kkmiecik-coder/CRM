@@ -15,7 +15,9 @@ API = '/api/mobile/manager'
 
 # Wszystkie endpointy blueprintu (metoda, wzór reguły Flaska względem API). Każde zadanie z trasami dopisuje tu swoje;
 # test_lista_endpointow_bramek_jest_pelna porównuje listę z regułami zarejestrowanymi w aplikacji.
-ENDPOINTY_KIEROWNIKA = []
+ENDPOINTY_KIEROWNIKA = [
+    ('GET', '/orders'),
+]
 
 _licznik = itertools.count(1)
 
