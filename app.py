@@ -883,6 +883,9 @@ def create_app():
         # Logistyka etap 4, krok 4.4: telefon kierowcy (Dostawa).
         from modules.production.logistics.routers.dostawa_api import dostawa_mobile_bp
         app.register_blueprint(dostawa_mobile_bp, url_prefix='/api/mobile/delivery')
+        # Tablet kierownika hali: przegląd i sterowanie produkcją (spec 2026-10-19).
+        from modules.production.kierownik import kierownik_mobile_bp
+        app.register_blueprint(kierownik_mobile_bp, url_prefix='/api/mobile/manager')
         from modules.production.logistics import logistics_panel_bp
         app.register_blueprint(logistics_panel_bp, url_prefix='/production/api/logistics')
         # Priorytety produkcji (krok K2): panel biura — drabina, gwiazdki, kolejka, ustawienia.
