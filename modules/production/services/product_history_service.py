@@ -83,6 +83,9 @@ def aggregate_station_events(events):
             'quantity_done_after': e.quantity_done_after,
             'device_id': e.device_id,
             'user_id': e.user_id,
+            # Źródło pojedynczego odbicia: tablet kierownika rozwija grupę z powrotem na wpisy i pokazuje
+            # każdy z własnym źródłem (grupa niesie tylko źródło ostatniego zdarzenia).
+            'source': getattr(e, 'source', None),
         })
 
     for g in groups.values():

@@ -11,7 +11,7 @@ from flask import Blueprint, request
 from modules.production.kierownik.services import zamowienia
 from modules.production.kierownik.services.bramka import blad, wymaga_kierownika
 from modules.production.services.mobile_api_service import require_device_token
-from modules.production.utils.cache import cached_json, if_none_match, not_modified
+from modules.production.utils.cache import cached_json, if_none_match, no_store_json, not_modified
 
 kierownik_mobile_bp = Blueprint('kierownik_mobile', __name__)
 
@@ -32,3 +32,25 @@ def lista_zamowien():
     if if_none_match(etag):
         return not_modified(etag, max_age=MAX_AGE_LISTY)
     return cached_json(zamowienia.lista(**parametry), etag, max_age=MAX_AGE_LISTY)
+
+
+@kierownik_mobile_bp.route('/orders/<int:order_id>', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def karta_zamowienia(order_id):
+    """Karta zamówienia z pełnymi pozycjami, załącznikami i miejscem na stołach stanowisk (§5.2). `no-store`."""
+    dane = zamowienia.karta(order_id)
+    if dane is None:
+        return blad('zamowienie_nieznane', u'Nie ma takiego zamówienia.', 404)
+    return no_store_json(dane)
+
+
+@kierownik_mobile_bp.route('/products/<int:product_id>/history', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def historia_pozycji(product_id):
+    """Historia pozycji: przepływ po stanowiskach i oś zdarzeń od najnowszych (§5.3). `no-store`."""
+    dane = zamowienia.historia(product_id)
+    if dane is None:
+        return blad('pozycja_nieznana', u'Nie ma takiej pozycji.', 404)
+    return no_store_json(dane)

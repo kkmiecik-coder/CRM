@@ -17,6 +17,8 @@ API = '/api/mobile/manager'
 # test_lista_endpointow_bramek_jest_pelna porównuje listę z regułami zarejestrowanymi w aplikacji.
 ENDPOINTY_KIEROWNIKA = [
     ('GET', '/orders'),
+    ('GET', '/orders/<int:order_id>'),
+    ('GET', '/products/<int:product_id>/history'),
 ]
 
 _licznik = itertools.count(1)

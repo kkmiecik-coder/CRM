@@ -829,6 +829,36 @@ def stoly_panelu(stanowiska=None):
     return [_stol_stanowiska(kod) for kod in kody]
 
 
+def lokalizacja_na_stolach(order_id):
+    """
+    Gdzie zamówienie leży na stołach stanowisk (karta zamówienia tabletu kierownika, kontrakt §5.2): lista
+    `{"stanowisko", "nazwa", "gdzie": "stol" | "odlozone", "unit_key"}` (odłożony kafel ma też `powod_etykieta`)
+    w kolejności procesu. Tylko kafle bieżącej jednostki stanowiska i tylko stanowiska ze stołem — tak samo jak
+    `_stol_stanowiska` i `odlozenia_panelu`. Zwykły odczyt jednego zapytania po `order_id`: bez blokad, bez zapisów
+    i bez liczenia całej kolejki (to robi `priorytet_zamowienia`, które nie niesie `unit_key`).
+    """
+    wiersze = (StationDesk.query.filter(StationDesk.order_id == order_id)
+               .order_by(StationDesk.id).all())
+    ze_stolem = stanowiska_ze_stolem()
+    prefiksy = {}
+    wynik = []
+    for kod in ze_stolem:
+        for wiersz in wiersze:
+            if wiersz.station_code != kod:
+                continue
+            if kod not in prefiksy:
+                prefiksy[kod] = _prefiks_jednostki(ustawienia.jednostka(kod))
+            if not wiersz.unit_key.startswith(prefiksy[kod]):
+                continue
+            pozycja = {'stanowisko': kod, 'nazwa': station_label(kod),
+                       'gdzie': 'stol' if wiersz.postponed_at is None else 'odlozone', 'unit_key': wiersz.unit_key}
+            if wiersz.postponed_at is not None:
+                powod = stale.ETYKIETY_POWODOW_ODLOZENIA.get(wiersz.postpone_reason, wiersz.postpone_reason)
+                pozycja['powod_etykieta'] = (powod[:1].upper() + powod[1:]) if powod else None
+            wynik.append(pozycja)
+    return wynik
+
+
 def odlozenia_panelu():
     """
     Otwarte odłożenia wszystkich stanowisk, najdłużej leżące pierwsze (spec 5.3 — plakietka „Odłożone na

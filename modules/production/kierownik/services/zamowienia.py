@@ -21,8 +21,8 @@ from modules.production.logistics import sposoby
 from modules.production.logistics.models import Route, RouteStop
 from modules.production.logistics.services import routes, weryfikacja
 from modules.production.models import ProductionOrder, ProductionProduct, get_local_now
-from modules.production.priorytety.services import kolejka
-from modules.production.services import archiwum_zamowien, order_timeline_service
+from modules.production.priorytety.services import kolejka, widok
+from modules.production.services import archiwum_zamowien, order_timeline_service, product_history_service
 from modules.production.utils.cache import make_weak_etag
 
 # Wersja kształtu odpowiedzi: wchodzi do ETagu, więc zmiana DTO unieważnia pamięć podręczną tabletów.
@@ -146,10 +146,11 @@ def _etap_logistyki(pozycje):
     z panelu), przed spakowaniem jedno słowo „W produkcji” (stanowisko pokazują pozycje i status zbiorczy).
     """
     aktywne = [p for p in pozycje if p.current_status != _ANULOWANE]
-    if not pozycje:
-        return {'kod': 'w_produkcji', 'etykieta': u'W produkcji'}
+    if not aktywne:
+        # Zamówienie bez żadnej aktywnej pozycji (usunięte albo w całości anulowane) to „Anulowane” (§5.1).
+        return {'kod': _ANULOWANE, 'etykieta': u'Anulowane'}
     status, napis = weryfikacja.etap(aktywne)
-    if status in sposoby.STATUSY_PO_SPAKOWANIU or status == _ANULOWANE:
+    if status in sposoby.STATUSY_PO_SPAKOWANIU:
         return {'kod': status, 'etykieta': napis}
     return {'kod': 'w_produkcji', 'etykieta': u'W produkcji'}
 
@@ -355,6 +356,251 @@ def lista(view, search, status, page, per_page, completed_from, completed_to):
         'statystyki': statystyki(zbior, view, arch),
         'strona': {'page': page, 'per_page': per_page, 'lacznie': lacznie,
                    'stron': max(1, int(math.ceil(lacznie / float(per_page))))},
+    }
+
+
+# ── karta zamówienia (§5.2) ─────────────────────────────────────────────────────────────────────────────────────
+
+# Kody stanowisk po wejściu (Wycinanie albo Składanie), w kolejności procesu. Te same klucze, których używa
+# `order_timeline_service.product_in_route`.
+_STANOWISKA_WSPOLNE = ('gluing', 'formatting', 'edges', 'painting', 'packaging')
+
+# Wejście do procesu wg technologii (jak `getStationsForProduct` w web: mikrowczep → Wycinanie, lity → Składanie;
+# bez technologii, czyli stare dane, oba).
+_WEJSCIE_WG_TECHNOLOGII = {'mikrowczep': ('cutting',), 'lity': ('assembly',)}
+_WEJSCIE_NIEZNANE = ('cutting', 'assembly')
+
+# Etykiety kształtu jak w modalu pozycji w panelu (products-module.js, SHAPE_LABELS).
+_KSZTALTY = {
+    'rectangular': u'Prostokątny', 'circle': u'Okrągły', 'round': u'Okrągły', 'oval': u'Owal',
+    'polygon': u'Wielokąt', 'parallelogram': u'Równoległobok', 'triangle_right': u'Trójkąt',
+    'triangle_equilateral': u'Trójkąt', 'triangle_isosceles': u'Trójkąt', 'triangle_custom': u'Trójkąt',
+    'trapezoid_symmetric': u'Trapez', 'trapezoid_asymmetric': u'Trapez', 'trapezoid_custom': u'Trapez',
+    'custom': u'Niestandardowy',
+}
+
+# Rodzaje obróbki krawędzi w obu zapisach spotykanych w bazie (parser: po polsku, wycena: po angielsku).
+_OBROBKI_KRAWEDZI = {
+    'zaokrąglenie': u'Zaokrąglenie', 'round': u'Zaokrąglenie',
+    'fazowanie': u'Fazowanie', 'chamfer': u'Fazowanie',
+    'mixed': u'Zaokrąglenie i fazowanie',
+}
+
+
+def _wielka(tekst):
+    tekst = _tekst(tekst)
+    return tekst[:1].upper() + tekst[1:] if tekst else None
+
+
+def _znany(tekst):
+    """Pole konfiguracji; `unknown` to wartość zastępcza `find_or_create` (brak danych), nie nazwa."""
+    tekst = _tekst(tekst)
+    return None if tekst is None or tekst.lower() == 'unknown' else tekst
+
+
+def trasa_stanowisk(pozycja):
+    """
+    Kody stanowisk, przez które pozycja idzie, w kolejności procesu. Wejście (Wycinanie albo Składanie) wynika z
+    technologii, reszta z reguły osi czasu w webie (`order_timeline_service.product_in_route`, czyli
+    `_should_skip_edges` i docięcie na wymiar) — to samo źródło, co kropki na osi czasu zamówienia.
+    """
+    konfiguracja = pozycja.configuration
+    technologia = (_znany(konfiguracja.technology) if konfiguracja is not None else None) or u''
+    wejscie = _WEJSCIE_WG_TECHNOLOGII.get(technologia.lower(), _WEJSCIE_NIEZNANE)
+    return list(wejscie) + [kod for kod in _STANOWISKA_WSPOLNE
+                            if order_timeline_service.product_in_route(pozycja, kod)]
+
+
+def _opis_wykonczenia(pozycja):
+    """„Olejowane, półmat, Brunat” — rodzaj, rodzaj koloru, połysk i kolor z pól pozycji; None, gdy brak danych."""
+    czesci = [_wielka(pozycja.parsed_finish_type), _tekst(pozycja.parsed_finish_color_type),
+              _tekst(pozycja.parsed_finish_gloss), _tekst(pozycja.parsed_finish_color)]
+    czesci = [c for c in czesci if c]
+    return u', '.join(czesci) or None
+
+
+def _opis_krawedzi(pozycja):
+    """
+    „Zaokrąglenie R3 (A, B)” albo kilka grup po ukośniku: jak pole obróbki krawędzi w modalu pozycji w panelu.
+    None, gdy pozycja nie ma obróbki krawędzi.
+    """
+    if not pozycja.parsed_edge_processing:
+        return None
+    from modules.calculator.services.edge_calculator import human_edge_label
+
+    def grupa(rodzaj, promien, kat, litery):
+        tekst = _OBROBKI_KRAWEDZI.get((rodzaj or u'').lower(), _wielka(rodzaj) or u'Obróbka')
+        if promien:
+            tekst += u' R%s' % promien
+        if kat:
+            tekst += u' %s°' % kat
+        if litery:
+            tekst += u' (%s)' % u', '.join(human_edge_label(l) for l in litery)
+        return tekst
+
+    grupy = [g for g in (pozycja.parsed_edges_groups or []) if isinstance(g, dict)]
+    if grupy:
+        return u' / '.join(grupa(g.get('type'), g.get('radius'), g.get('angle'), g.get('letters') or [])
+                           for g in grupy)
+    if pozycja.parsed_edge_type:
+        return grupa(pozycja.parsed_edge_type, pozycja.parsed_edge_radius, pozycja.parsed_edge_angle,
+                     pozycja.parsed_edge_letters or [])
+    return u'Tak'
+
+
+def pozycja_pelna(pozycja, razem=None):
+    """
+    Pozycja na karcie zamówienia (§5.2): specyfikacja opisowo, rysunki jak na tabletach stanowisk, wymiary, sztuki,
+    zrobione sztuki na stanowiskach z trasy pozycji, status, termin, ranga, doróbka i uwagi produkcji.
+    `razem` — liczba pozycji zamówienia (mianownik w „kolejnosc”); bez niej liczymy z `pozycja.order`.
+    """
+    konfiguracja = pozycja.configuration
+    if razem is None:
+        razem = len(pozycja.order.products) if pozycja.order is not None else 1
+    trasa = trasa_stanowisk(pozycja)
+    return {
+        'product_id': pozycja.id,
+        'short_product_id': pozycja.short_product_id,
+        'nazwa': pozycja.original_product_name,
+        'kolejnosc': u'%d/%d' % (pozycja.product_sequence_in_order or 0, razem),
+        'specyfikacja': {
+            'gatunek': _znany(konfiguracja.species) if konfiguracja is not None else None,
+            'technologia': _wielka(_znany(konfiguracja.technology)) if konfiguracja is not None else None,
+            'klasa': _znany(konfiguracja.wood_class) if konfiguracja is not None else None,
+            'grubosc_cm': _liczba_lub_none(pozycja.parsed_thickness_cm),
+            'wykonczenie': _opis_wykonczenia(pozycja),
+            'krawedzie': _opis_krawedzi(pozycja),
+            'ksztalt': _KSZTALTY.get(pozycja.shape, pozycja.shape) if pozycja.shape else None,
+        },
+        'shape_svg': pozycja.shape_svg,
+        'edge_svg': pozycja.edge_svg,
+        'wymiary': {
+            'dlugosc_cm': _liczba_lub_none(pozycja.parsed_length_cm),
+            'szerokosc_cm': _liczba_lub_none(pozycja.parsed_width_cm),
+            'grubosc_cm': _liczba_lub_none(pozycja.parsed_thickness_cm),
+        },
+        'sztuk': int(pozycja.quantity or 0),
+        'm3': objetosc_m3(pozycja),
+        'zrobione': {kod: int(pozycja.get_quantity_done(kod) or 0) for kod in trasa},
+        'trasa_stanowisk': trasa,
+        'status': pozycja.current_status,
+        'status_etykieta': pozycja.status_display_name,
+        'termin': pozycja.deadline_date.isoformat() if pozycja.deadline_date else None,
+        'ranga': pozycja.priority_rank,
+        'dorobka': pozycja.is_rework,
+        'oryginal_id': pozycja.original_product_id,
+        'notatki_produkcji': _tekst(pozycja.production_notes),
+    }
+
+
+def _zalaczniki(order):
+    """Załączniki zamówienia: dziś najwyżej jeden plik z Base. (`attachment_file_*`)."""
+    url = _tekst(order.attachment_file_url)
+    if url is None:
+        return []
+    return [{'nazwa': _tekst(order.attachment_file_name) or url.rsplit('/', 1)[-1], 'url': url}]
+
+
+def _data_zakonczenia(order):
+    """Data zakończenia zamówienia archiwalnego (to samo wyrażenie co w liście archiwum); None, gdy bieżące."""
+    if not order.internal_order_number:
+        return None
+    wiersz = (archiwum_zamowien.zapytanie_archiwum(None, None, None, weryfikacja.data_wdrozenia())
+              .filter(ProductionOrder.internal_order_number == order.internal_order_number).first())
+    return wiersz.completed_at if wiersz is not None else None
+
+
+def karta(order_id):
+    """
+    Odpowiedź `GET /manager/orders/<id>` (§5.2): wszystkie pola zamówienia z listy (bez skróconych `pozycje[]`),
+    notatki, załączniki, miejsce na stołach stanowisk i pozycje pełne. None, gdy zamówienia nie ma. Same odczyty.
+    """
+    order = (ProductionOrder.query
+             .options(selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration))
+             .filter(ProductionOrder.id == order_id).first())
+    if order is None:
+        return None
+    pozycje = pozycje_w_kolejnosci(order)
+    trasa = routes.trasy_zamowien([order.id]).get(order.id)
+    dane = zamowienie_krotko(order, pozycje, trasa, _data_zakonczenia(order))
+    dane.update({
+        'notatki': _tekst(order.order_notes),
+        'zalaczniki': _zalaczniki(order),
+        'na_stanowiskach': widok.lokalizacja_na_stolach(order.id),
+        'pozycje': [pozycja_pelna(p, len(pozycje)) for p in pozycje],
+    })
+    return {'zamowienie': dane}
+
+
+# ── historia pozycji (§5.3) ─────────────────────────────────────────────────────────────────────────────────────
+
+# Rodzaje zdarzeń pozycji (`prod_product_events.event_type`) w nazwach kontraktu.
+_RODZAJE_ZDARZEN = {'status_change': 'status', 'priority_change': 'priorytet', 'rework': 'dorobka',
+                    'logistics': 'logistyka'}
+
+
+def _etykieta_statusu(kod, podreczna):
+    """Etykieta statusu z tego samego źródła co reszta API (`status_display_name`); kod, gdy go nie znamy."""
+    if not kod:
+        return None
+    if kod not in podreczna:
+        podreczna[kod] = ProductionProduct(current_status=kod).status_display_name
+    return podreczna[kod]
+
+
+def _kiedy(wpis):
+    return datetime.fromisoformat(wpis['kiedy'])
+
+
+def _wpis_zdarzenia(wpis, etykiety):
+    rodzaj = _RODZAJE_ZDARZEN.get(wpis.get('event_type'), wpis.get('event_type'))
+    wynik = {'kiedy': wpis['at'], 'rodzaj': rodzaj}
+    if rodzaj == 'status':
+        wynik.update({'z': wpis['old_value'], 'z_etykieta': _etykieta_statusu(wpis['old_value'], etykiety),
+                      'na': wpis['new_value'], 'na_etykieta': _etykieta_statusu(wpis['new_value'], etykiety)})
+    else:
+        for klucz, pole in (('z', 'old_value'), ('na', 'new_value')):
+            if wpis.get(pole) is not None:
+                wynik[klucz] = wpis[pole]
+        if _tekst(wpis.get('note')):
+            wynik['opis'] = _tekst(wpis['note'])
+    wynik.update({'kto': wpis['actor_label'], 'zrodlo': wpis['source']})
+    return wynik
+
+
+def _wpisy_pracy(wpis):
+    """Grupa pracy stanowiska (zwinięta przez serwis historii) z powrotem na pojedyncze odbicia; cofnięcie to jeden wpis."""
+    if wpis['kind'] == 'reject':
+        return [{'kiedy': wpis['at'], 'rodzaj': 'praca', 'stanowisko': wpis['station_code'],
+                 'zmiana': wpis['delta'], 'kto': wpis['actor_label'], 'zrodlo': wpis['source']}]
+    # Kto fizycznie pracował przy stanowisku (profile pracowników); bez nich nazwa urządzenia albo „System”.
+    kto = u', '.join(wpis.get('workers') or []) or wpis['actor_label']
+    return [{'kiedy': pod['at'], 'rodzaj': 'praca', 'stanowisko': wpis['station_code'], 'zmiana': pod['delta'],
+             'kto': kto, 'zrodlo': pod.get('source')} for pod in wpis['entries']]
+
+
+def historia(product_id):
+    """
+    Odpowiedź `GET /manager/products/<id>/history` (§5.3): przepływ (kto domknął które stanowisko) i oś zdarzeń od
+    najnowszych — zmiany statusu i inne zdarzenia pozycji oraz odbicia sztuk na stanowiskach (każde osobno, także
+    cofnięcia). Dane z `product_history_service`, przepisane na pola kontraktu. None, gdy pozycji nie ma.
+    """
+    if db.session.query(ProductionProduct.id).filter(ProductionProduct.id == product_id).first() is None:
+        return None
+    surowa = product_history_service.build_product_history(product_id)
+    etykiety = {}
+    wpisy = []
+    for wpis in surowa['history']:
+        if wpis['kind'] == 'status':
+            wpisy.append(_wpis_zdarzenia(wpis, etykiety))
+        else:
+            wpisy.extend(_wpisy_pracy(wpis))
+    wpisy.sort(key=_kiedy, reverse=True)
+    return {
+        'product_id': product_id,
+        'przeplyw': {kod: {'zakonczono': f['completed_at'], 'kto': f['actor_label'],
+                           'pracownicy': list(f['workers'])} for kod, f in surowa['flow'].items()},
+        'historia': wpisy,
     }
 
 
