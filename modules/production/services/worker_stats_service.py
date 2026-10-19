@@ -427,7 +427,7 @@ def otwarte_sesje(start_date, end_date, worker_id=None, station=None):
                 ProductionWorkerSession.worker_id).all()}
 
 
-def obsada_stanowisk():
+def obsada_stanowisk(szczegoly=False):
     """
     {kod_stanowiska: [{'id', 'imie', 'nazwisko', 'inicjaly', 'kolor',
     'pierwsze', 'ostatnia', 'temu'}]} — kto stoi TERAZ przy maszynie.
@@ -455,6 +455,10 @@ def obsada_stanowisk():
     sprzed rozdziału wykańczalni nadal wysyłają stary kod (patrz
     STATION_CODE_ALIASES); bez tej normalizacji brygada z takiego tabletu
     nie trafiłaby na żaden wiersz.
+
+    `szczegoly=True` dokłada do każdej osoby pełne czasy ISO bez strefy (dla tabletu kierownika hali, kontrakt
+    `docs/api-mobile-kierownik.md` §7.5): `od` — początek bieżącej sesji (najwcześniejszej, gdy są dwie), `pierwsze_dzis`
+    i `ostatnia_aktywnosc`. Domyślnie ich nie ma, więc kształt wiersza dashboardu się nie zmienia.
     """
     teraz = get_local_now()
     dzis = teraz.date()
@@ -478,6 +482,7 @@ def obsada_stanowisk():
         ProductionWorker.last_name,
         ProductionWorker.color_hex,
         ProductionWorkerSession.last_activity_at,
+        ProductionWorkerSession.started_at,
     ).join(
         ProductionWorker,
         ProductionWorker.id == ProductionWorkerSession.worker_id,
@@ -493,8 +498,11 @@ def obsada_stanowisk():
     def hhmm(chwila):
         return chwila.strftime('%H:%M') if chwila else None
 
+    def iso(chwila):
+        return chwila.replace(microsecond=0).isoformat() if chwila else None
+
     obsada = {}
-    for kod, wid, imie, nazwisko, kolor, ostatnia in wiersze:
+    for kod, wid, imie, nazwisko, kolor, ostatnia, start in wiersze:
         kod = resolve_station_code(kod)
         ludzie = obsada.setdefault(kod, [])
         # Dwie otwarte sesje tej samej osoby na jednym stanowisku to stan
@@ -510,7 +518,7 @@ def obsada_stanowisk():
         # Jeden pracownik potrafił mieć 13 sesji, krążąc między składaniem,
         # wycinaniem, formatowaniem i krawędziami. „Na stanowisku od 11:10"
         # przy człowieku pracującym tam od 8:59 to nie informacja, to szum.
-        ludzie.append({
+        osoba = {
             'id': wid,
             'imie': imie or '',
             'nazwisko': nazwisko or '',
@@ -522,7 +530,14 @@ def obsada_stanowisk():
             'temu': (max(0, int((teraz - ostatnia).total_seconds() // 60))
                      if ostatnia else None),
             'pierwsze': hhmm(pierwsze_logowanie.get(wid)),
-        })
+        }
+        if szczegoly:
+            osoba.update({
+                'od': iso(start),
+                'pierwsze_dzis': iso(pierwsze_logowanie.get(wid)),
+                'ostatnia_aktywnosc': iso(ostatnia),
+            })
+        ludzie.append(osoba)
     return obsada
 
 

@@ -6,17 +6,20 @@ Każda trasa: @require_device_token → @wymaga_kierownika (services/bramka.py);
 @with_idempotency(retryable_statuses=BLEDY_DO_PONOWIENIA, require_operation_id=True). Kolejne trasy dopisują
 następne zadania planu.
 """
+import hashlib
+import json
+
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import OperationalError
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.kierownik.services import bramka, zamowienia
+from modules.production.kierownik.services import bramka, stanowiska, zamowienia
 from modules.production.kierownik.services.bramka import blad, wymaga_kierownika
 from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA
 from modules.production.services import blokady_zamowien, worker_service, zmiana_statusu
 from modules.production.services.mobile_api_service import require_device_token, with_idempotency
-from modules.production.utils.cache import cached_json, if_none_match, no_store_json, not_modified
+from modules.production.utils.cache import cached_json, if_none_match, make_weak_etag, no_store_json, not_modified
 
 logger = get_structured_logger('production.kierownik.mobile_api')
 
@@ -61,6 +64,51 @@ def historia_pozycji(product_id):
     if dane is None:
         return blad('pozycja_nieznana', u'Nie ma takiej pozycji.', 404)
     return no_store_json(dane)
+
+
+# --- Stanowiska (odczyty; kontrakt §7.1, §7.2, §7.5) ------------------------------------------------------------
+# Same zwykłe odczyty: bez blokad, bez commitów i bez dopełniania stołu (to robi wyłącznie `GET desk` tabletów).
+
+# Wersja kształtu przeglądu: wchodzi do ETagu, więc zmiana DTO unieważnia pamięć podręczną tabletów.
+KSZTALT_PRZEGLADU_STANOWISK = 1
+
+
+@kierownik_mobile_bp.route('/stations', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def przeglad_stanowisk():
+    """Przegląd 7 stanowisk: nagłówki, liczniki i obsada bez list kafli (§7.1). Słaby ETag, `max-age=15`."""
+    dane = stanowiska.przeglad()
+    # Przegląd nie ma taniego agregatu, więc ETag to odcisk samej treści (bez znacznika `wyliczono`, który zmienia się
+    # co żądanie). 304 oszczędza tablet, nie bazę.
+    tresc = json.dumps({k: v for k, v in dane.items() if k != 'wyliczono'}, sort_keys=True, ensure_ascii=False)
+    etag = make_weak_etag('kier-stan', KSZTALT_PRZEGLADU_STANOWISK, hashlib.md5(tresc.encode('utf-8')).hexdigest())
+    if if_none_match(etag):
+        return not_modified(etag, max_age=MAX_AGE_LISTY)
+    return cached_json(dane, etag, max_age=MAX_AGE_LISTY)
+
+
+@kierownik_mobile_bp.route('/stations/<kod>', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def pelne_stanowisko(kod):
+    """Pełne stanowisko: stół, odłożone, widma, niekompletne i kolejka do `limit` kafli (§7.2). `no-store`."""
+    if kod not in stanowiska.STATION_ORDER:
+        return blad('stanowisko_nieznane', u'Nie ma takiego stanowiska.', 404)
+    try:
+        limit = stanowiska.wczytaj_limit(request.args.get('limit'))
+    except stanowiska.BladLimitu as e:
+        return blad('dane_niepoprawne', str(e), 400)
+    dane = stanowiska.pelne(kod, limit)
+    return no_store_json(dane)
+
+
+@kierownik_mobile_bp.route('/workers/now', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def kto_teraz_pracuje():
+    """„Kto teraz pracuje”: wszystkie stanowiska z obsadą, także puste (§7.5). `no-store`."""
+    return no_store_json(stanowiska.obsada())
 
 
 # --- Zapisy -----------------------------------------------------------------------------------------------------
