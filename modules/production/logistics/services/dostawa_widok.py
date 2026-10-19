@@ -84,6 +84,21 @@ def _stan(order, aktywne, stop=None):
     return 'niezweryfikowane'
 
 
+def stan_i_etykieta(order, aktywne, stop=None):
+    """(stan, etykieta dla ludzi) przystanku — jedna reguła dla telefonu kierowcy i tabletu kierownika. Problem ma
+    etykietę z powodem (`PROBLEM: …`)."""
+    stan = _stan(order, aktywne, stop)
+    etykieta = ETYKIETY_STANU.get(stan)
+    if stan == 'problem':
+        etykieta = u'PROBLEM: ' + weryfikacja.POWODY_PROBLEMU.get(order.problem_reason, order.problem_reason or u'')
+    return stan, etykieta
+
+
+def paczka_zaladowana(p, trasa):
+    """Czy paczka jest załadowana na TĘ trasę (znaczniki załadunku zostają po dostarczeniu)."""
+    return _zaladowana(p, trasa)
+
+
 def _aktywne_przystanki(trasa, zamowienia):
     return [s for s in trasa.stops if s.order_id in zamowienia and delivery.aktywne_produkty(zamowienia[s.order_id])]
 
@@ -117,10 +132,7 @@ def lista_moich_tras(kierowca_id, dzis):
 
 def _przystanek(stop, order, numer, pakunki_zamowienia, punkt, trasa):
     aktywne = delivery.aktywne_produkty(order)
-    stan = _stan(order, aktywne, stop)
-    etykieta = ETYKIETY_STANU.get(stan)
-    if stan == 'problem':
-        etykieta = u'PROBLEM: ' + weryfikacja.POWODY_PROBLEMU.get(order.problem_reason, order.problem_reason or u'')
+    stan, etykieta = stan_i_etykieta(order, aktywne, stop)
     m3 = round(sum(float(p.volume_m3 or 0) * (p.quantity or 1) for p in aktywne), 4)
     # Ta sama reguła co Routimo: punkt dokładny, policzony dla bieżącego adresu, bez ręcznego sprzed zmiany adresu.
     # W odpowiedzi zapisu `order` pochodzi z odczytu bieżącego (zablokuj), więc skrót liczymy z aktualnego adresu.

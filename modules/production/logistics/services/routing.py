@@ -95,11 +95,24 @@ def _sha1(tekst):
     return hashlib.sha1(tekst.encode('utf-8')).hexdigest()
 
 
-def _punkty(route, punkty_zamowien):
-    """[(lat, lng)] magazyn → przystanki z współrzędnymi → magazyn, oraz czy któregoś brakuje."""
+def skrot_trasy(punkty, braki):
+    """
+    Zwykły skrót cache przebiegu (`geometry_hash`): punkty magazyn → przystanki → magazyn, z dopiskiem, gdy któregoś
+    przystanku brakuje. Czysta funkcja, bez bazy i sieci — `przelicz` zapisuje nią cache, a odczyty (tablet
+    kierownika) sprawdzają nią, czy zapisany przebieg jeszcze pasuje do przystanków.
+    """
+    return _sha1(skrot_przebiegu(punkty) + ('-braki' if braki else ''))
+
+
+def _punkty(route, punkty_zamowien, zamowienia=None):
+    """
+    [(lat, lng)] magazyn → przystanki z współrzędnymi → magazyn, oraz czy któregoś brakuje (i ile przystanków ma punkt).
+    `zamowienia` — zamówienia trasy w kolejności przystanków, jeśli wołający już je wczytał (z pozycjami); inaczej
+    czytamy je z bazy (`routes.zamowienia_trasy`).
+    """
     magazyn = (MAGAZYN['lat'], MAGAZYN['lng'])
     srodek, braki = [], False
-    for order in routes.zamowienia_trasy(route):
+    for order in (zamowienia if zamowienia is not None else routes.zamowienia_trasy(route)):
         if not delivery.aktywne_produkty(order):
             # (I5) Zamówienie anulowane w całości — Routimo go pomija, kierowca tam nie
             # jedzie, więc nie liczy się ani do przebiegu, ani do braków współrzędnych.
@@ -327,7 +340,7 @@ def przelicz(route, punkty_zamowien, http_post=None, wymus=False, teraz=None, ze
     global _klucz_ors_ostrzezono
     zegar = zegar or zegar_zadania()
     punkty, braki, liczba = _punkty(route, punkty_zamowien)
-    skrot = _sha1(skrot_przebiegu(punkty) + ('-braki' if braki else ''))
+    skrot = skrot_trasy(punkty, braki)
     strukturalne = liczba == 0 or braki or liczba > MAKS_PRZYSTANKOW
     klucz = klucz_ors()
     skrot_bez_klucza = _sha1(skrot + '-bez-klucza')
@@ -383,6 +396,32 @@ def przelicz(route, punkty_zamowien, http_post=None, wymus=False, teraz=None, ze
 
 def przebieg(route):
     return json.loads(route.geometry_json) if route.geometry_json else None
+
+
+def _linie_proste_zgodne(route, punkty):
+    """Czy zapisana geometria to dokładnie linie proste przez te punkty (kształt, który zostawia `_linie_proste`)."""
+    try:
+        zapisane = [[round(x, 6), round(y, 6)] for x, y in json.loads(route.geometry_json)['coordinates']]
+    except (ValueError, TypeError, KeyError):
+        return False
+    return zapisane == [[round(p[1], 6), round(p[0], 6)] for p in punkty]
+
+
+def przebieg_nieaktualny(route, punkty_zamowien, zamowienia=None):
+    """
+    Czy przystanki trasy zmieniły się od ostatniego przeliczenia przebiegu — bez przeliczania, bez bazy poza
+    odczytem zamówień (gdy wołający nie poda `zamowienia`) i bez sieci. Czysty odczyt dla tabletów.
+
+    Przebieg pasuje, gdy `geometry_hash` to zwykły skrót punktów (`skrot_trasy`: przebieg po drogach i przybliżenia
+    strukturalne). Linie proste po braku klucza ORS albo po jego błędzie mają w `geometry_hash` skrót z dopiskiem
+    („bez klucza”, godzina błędu), którego nie da się odtworzyć bez znajomości godziny — dla nich pasuje to, że
+    zapisana geometria jest dokładnie liniami prostymi przez bieżące punkty (`_linie_proste` zapisuje właśnie tyle).
+    Trasa nigdy nieprzeliczona (brak skrótu) jest nieaktualna.
+    """
+    punkty, braki, _liczba = _punkty(route, punkty_zamowien, zamowienia)
+    if route.geometry_hash and route.geometry_hash == skrot_trasy(punkty, braki):
+        return False
+    return not (route.geometry_approx and route.geometry_json and _linie_proste_zgodne(route, punkty))
 
 
 def liczba_odcinkow_prostych(route):

@@ -11,17 +11,17 @@ Każda zmiana widoczna na tablecie podbija updated_at pozycji zamówień
 import re
 from datetime import date, timedelta
 
-from sqlalchemy import insert
+from sqlalchemy import insert, or_
 from sqlalchemy.orm import joinedload, selectinload
 
 from extensions import db
 from modules.logging import get_structured_logger
 from modules.production.logistics import sposoby
 from modules.production.logistics.models import Route, RouteStop, STATUSY_TRASY_AKTYWNE, Vehicle
-from modules.production.logistics.services import delivery, fleet
+from modules.production.logistics.services import delivery, fleet, geocoding
 from modules.production.logistics.services.delivery import LogistykaBlad
 from modules.production.models import (
-    ProductionConfig, ProductionOrder, ProductionWorker, get_local_now,
+    ProductionConfig, ProductionOrder, ProductionProduct, ProductionWorker, get_local_now,
 )
 
 logger = get_structured_logger('production.logistics.routes')
@@ -251,6 +251,78 @@ def _wymagaj_statusu(route, *statusy):
                 'zaladowana': u'załadowana', 'w_trasie': u'w trasie'}
         raise LogistykaBlad(u'Trasa „{}” jest {} — ta operacja nie jest dostępna.'.format(
             route.name, opis.get(route.status, route.status)))
+
+
+# Sekcje listy tras w kolejności cyklu trasy (krok 4.4: załadowane i w trasie między zatwierdzonymi a wykonanymi).
+KOLEJNOSC_STATUSOW = {'robocza': 0, 'zatwierdzona': 1, 'zaladowana': 2, 'w_trasie': 3, 'wykonana': 4}
+# (I1, ruling okna domyślnego) Bez jawnego `od` lista tras ciągnęłaby WSZYSTKIE trasy w historii firmy — trasy
+# WYKONANE (zamknięty, archiwalny stan) starsze niż tyle dni znikają z domyślnego widoku; trasy w każdym innym statusie
+# (robocza, zatwierdzona, załadowana, w trasie) NIGDY nie są tym oknem przycinane (to bieżąca praca).
+DNI_WYKONANYCH_DOMYSLNIE = 30
+
+
+def zapytanie_tras(status=None, od=None, do=None):
+    """
+    Zapytanie o trasy do listy (panel tras, tablet kierownika) bez wczytywania relacji. `status` — jeden z
+    STATUSY_TRASY albo None (wołający waliduje). `od`/`do` — daty, sprawdzone przez wołającego (`parsuj_date`).
+    (M8) Filtr `od`/`do` celowo BEZ granic dat tras (`granice_dat`) — to przeszukiwanie historii. Brak `od` →
+    okno domyślne trasy wykonanych (DNI_WYKONANYCH_DOMYSLNIE); „dziś” z `dzis()`, tego samego, które wyznacza granice
+    dat tras.
+    """
+    zapytanie = Route.query
+    if status:
+        zapytanie = zapytanie.filter(Route.status == status)
+    if od is not None:
+        zapytanie = zapytanie.filter(Route.date_to >= od)
+    else:
+        granica = dzis() - timedelta(days=DNI_WYKONANYCH_DOMYSLNIE)
+        zapytanie = zapytanie.filter(or_(Route.status != 'wykonana', Route.date_to >= granica))
+    if do is not None:
+        zapytanie = zapytanie.filter(Route.date_from <= do)
+    return zapytanie
+
+
+def wczytaj_trasy(status=None, od=None, do=None, zapytanie=None, swieze=False):
+    """
+    (I1, poprawka po przeglądzie) Zbiorcze wczytanie tras do listy/mapy bez
+    lawiny zapytań: trasy razem z przystankami/pojazdem/kierowcą (`selectinload`,
+    po jednym zapytaniu na każdą relację — nie R tras × S przystanków), zamówienia
+    WSZYSTKICH tras jednym zapytaniem z tym samym eager loadingiem co
+    `lista.pobierz` (pozycje + konfiguracje), punkty geo jednym zapytaniem. Bez
+    tego każda trasa osobno odpytywałaby swoje przystanki/zamówienia/pozycje/geo —
+    R × (3 + S) zapytań na jedno żądanie, na synchronicznych workerach gunicorna,
+    od których zależą też tablety hali.
+
+    Które trasy: `zapytanie_tras(status, od, do)` (domyślnie aktywne i wykonane z ostatnich
+    DNI_WYKONANYCH_DOMYSLNIE dni) albo gotowe `zapytanie` (mapa tras: aktywne w swojej kolejności).
+    Zwraca `(trasy, zamowienia_wg_trasy, punkty)`; `zamowienia_wg_trasy[route.id]`
+    to lista zamówień W KOLEJNOŚCI przystanków tej trasy (przystanek bez
+    dopasowanego zamówienia — np. skasowanego w międzyczasie — jest pomijany,
+    tak jak w `zamowienia_trasy`). `swieze` — ponowne wczytanie po commicie (M7),
+    populate_existing wypełnia od nowa obiekty wygaszone commitem. Tylko odczyt: niczego nie zapisuje i nie commituje.
+    """
+    if zapytanie is None:
+        zapytanie = zapytanie_tras(status, od, do)
+    zapytanie = zapytanie.options(selectinload(Route.stops), selectinload(Route.vehicle),
+                                  selectinload(Route.driver))
+    if swieze:
+        zapytanie = zapytanie.populate_existing()
+    trasy = zapytanie.all()
+    wszystkie_ids = list({s.order_id for trasa in trasy for s in trasa.stops})
+    zamowienia_po_id = {}
+    if wszystkie_ids:
+        zamowienia = ProductionOrder.query.options(
+            selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration)
+        ).filter(ProductionOrder.id.in_(wszystkie_ids))
+        if swieze:
+            zamowienia = zamowienia.populate_existing()
+        zamowienia_po_id = {o.id: o for o in zamowienia.all()}
+    punkty = geocoding.geo_zamowien(wszystkie_ids)
+    zamowienia_wg_trasy = {
+        trasa.id: [zamowienia_po_id[s.order_id] for s in trasa.stops if s.order_id in zamowienia_po_id]
+        for trasa in trasy
+    }
+    return trasy, zamowienia_wg_trasy, punkty
 
 
 def zamowienia_trasy(route):

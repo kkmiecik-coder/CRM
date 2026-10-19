@@ -14,10 +14,9 @@ i `/remove-not-delivered` („Zdejmij z trasy”), historia zdjętych w `niedost
 Optymalizacja kolejności (krok 4.4d): `POST /routes/<id>/optimize` — podgląd (services/optymalizacja.py), bez zapisu.
 """
 import io
-from datetime import timedelta
 
 from flask import jsonify, request, send_file
-from sqlalchemy import func, or_
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.exc import ObjectDeletedError, StaleDataError
@@ -42,13 +41,8 @@ def _start_zadania():
     # zapis mógł już czekać na blokadę tras, a gunicorn ubija żądanie po 30 s.
     routing.zapamietaj_start_zadania()
 
-# Sekcje listy tras w kolejności cyklu trasy (krok 4.4: załadowane i w trasie między zatwierdzonymi a wykonanymi).
-KOLEJNOSC_STATUSOW = {'robocza': 0, 'zatwierdzona': 1, 'zaladowana': 2, 'w_trasie': 3, 'wykonana': 4}
-# (I1, ruling okna domyślnego) Bez jawnego `od` GET /routes ciągnąłby WSZYSTKIE
-# trasy w historii firmy — trasy WYKONANE (zamknięty, archiwalny stan) starsze
-# niż tyle dni znikają z domyślnego widoku; trasy w każdym innym statusie (robocza,
-# zatwierdzona, załadowana, w trasie) NIGDY nie są tym oknem przycinane (to bieżąca praca).
-DNI_WYKONANYCH_DOMYSLNIE = 30
+# Kolejność sekcji listy tras i okno domyślne tras wykonanych (I1) mieszkają w routes.py — dzieli je z tabletem
+# kierownika (routes.KOLEJNOSC_STATUSOW, routes.DNI_WYKONANYCH_DOMYSLNIE).
 KOMUNIKAT_KONFLIKT_PRZYSTANKU = (u'Zamówienie trafiło w międzyczasie na inną trasę — '
                                  u'odśwież listę i spróbuj ponownie.')
 KOMUNIKAT_KONFLIKT_TRASY = u'Dane trasy zmieniły się w międzyczasie — odśwież i spróbuj ponownie.'
@@ -184,45 +178,6 @@ def _przystanki_mapy(zamowienia, punkty, przystanki=None):
              'lat': wspolrzedna(o.id, 'lat'), 'lng': wspolrzedna(o.id, 'lng'),
              'dostarczone': dostarczony(o.id), 'niedostarczone': niedostarczony(o.id)}
             for o, numer, anulowane in routes.numeracja_przystankow(zamowienia)]
-
-
-def _wczytaj_trasy(zapytanie, swieze=False):
-    """
-    (I1, poprawka po przeglądzie) Zbiorcze wczytanie tras do listy/mapy bez
-    lawiny zapytań: trasy razem z przystankami/pojazdem/kierowcą (`selectinload`,
-    po jednym zapytaniu na każdą relację — nie R tras × S przystanków), zamówienia
-    WSZYSTKICH tras jednym zapytaniem z tym samym eager loadingiem co
-    `lista.pobierz` (pozycje + konfiguracje), punkty geo jednym zapytaniem. Bez
-    tego każda trasa osobno odpytywałaby swoje przystanki/zamówienia/pozycje/geo —
-    R × (3 + S) zapytań na jedno żądanie, na synchronicznych workerach gunicorna,
-    od których zależą też tablety hali.
-
-    Zwraca `(trasy, zamowienia_wg_trasy, punkty)`; `zamowienia_wg_trasy[route.id]`
-    to lista zamówień W KOLEJNOŚCI przystanków tej trasy (przystanek bez
-    dopasowanego zamówienia — np. skasowanego w międzyczasie — jest pomijany,
-    tak jak w `routes.zamowienia_trasy`). `swieze` — ponowne wczytanie po commicie (M7),
-    patrz `_zamowienia_z_produktami`.
-    """
-    zapytanie = zapytanie.options(selectinload(Route.stops), selectinload(Route.vehicle),
-                                  selectinload(Route.driver))
-    if swieze:
-        zapytanie = zapytanie.populate_existing()
-    trasy = zapytanie.all()
-    wszystkie_ids = list({s.order_id for trasa in trasy for s in trasa.stops})
-    zamowienia_po_id = {}
-    if wszystkie_ids:
-        zamowienia = ProductionOrder.query.options(
-            selectinload(ProductionOrder.products).selectinload(ProductionProduct.configuration)
-        ).filter(ProductionOrder.id.in_(wszystkie_ids))
-        if swieze:
-            zamowienia = zamowienia.populate_existing()
-        zamowienia_po_id = {o.id: o for o in zamowienia.all()}
-    punkty = geocoding.geo_zamowien(wszystkie_ids)
-    zamowienia_wg_trasy = {
-        trasa.id: [zamowienia_po_id[s.order_id] for s in trasa.stops if s.order_id in zamowienia_po_id]
-        for trasa in trasy
-    }
-    return trasy, zamowienia_wg_trasy, punkty
 
 
 def _cofniecia_dostarczen(route_id, order_ids):
@@ -516,12 +471,9 @@ def availability():
 @logistics_panel_bp.route('/routes', methods=['GET'])
 @guard
 def routes_list():
-    zapytanie = Route.query
     status = request.args.get('status')
-    if status:
-        if status not in STATUSY_TRASY:
-            return _blad(u'Nieznany status trasy.', 422)
-        zapytanie = zapytanie.filter(Route.status == status)
+    if status and status not in STATUSY_TRASY:
+        return _blad(u'Nieznany status trasy.', 422)
     try:
         # (M8) Filtr wyszukiwania wykonanych celowo BEZ granic dat tras (routes.granice_dat)
         # — to przeszukiwanie historii; sprawdzamy tylko format (M11).
@@ -529,19 +481,9 @@ def routes_list():
         do = _data_z_parametru('do')
     except ValueError:
         return _blad(u'Podaj daty RRRR-MM-DD.', 422)
-    if od is not None:
-        zapytanie = zapytanie.filter(Route.date_to >= od)
-    else:
-        # (I1, ruling okna domyślnego) Brak `od` → trasy WYKONANE starsze niż
-        # DNI_WYKONANYCH_DOMYSLNIE dni znikają z listy; każdy inny status (także
-        # załadowana i w trasie) przechodzi zawsze (pierwszy człon OR-a). „Dziś” z routes.dzis() — to samo,
-        # które wyznacza granice dat tras.
-        granica = routes.dzis() - timedelta(days=DNI_WYKONANYCH_DOMYSLNIE)
-        zapytanie = zapytanie.filter(or_(Route.status != 'wykonana', Route.date_to >= granica))
-    if do is not None:
-        zapytanie = zapytanie.filter(Route.date_from <= do)
-    trasy, zamowienia_wg_trasy, punkty = _wczytaj_trasy(zapytanie)
-    trasy = sorted(trasy, key=lambda r: (KOLEJNOSC_STATUSOW[r.status], r.date_from, r.id))
+    # Filtry i okno domyślne tras wykonanych: routes.zapytanie_tras (wspólne z tabletem kierownika).
+    trasy, zamowienia_wg_trasy, punkty = routes.wczytaj_trasy(status, od, do)
+    trasy = sorted(trasy, key=lambda r: (routes.KOLEJNOSC_STATUSOW[r.status], r.date_from, r.id))
     # Krok 4.4: postęp Dostawy przy każdej trasie — paczki wszystkich tras jednym zapytaniem.
     pakunki = paczki.aktualne_paczki_zamowien(
         [o.id for zamowienia in zamowienia_wg_trasy.values() for o in zamowienia])
@@ -583,14 +525,14 @@ def routes_map():
     # (M8) Sortowanie po (date_from, id) — nie samym date_from — żeby kolejność
     # (a więc i kolory tras w UI) była stabilna między żądaniami przy remisie dnia.
     zapytanie = Route.query.filter(Route.status.in_(routes.AKTYWNE)).order_by(Route.date_from, Route.id)
-    trasy, zamowienia_wg_trasy, punkty = _wczytaj_trasy(zapytanie)   # (I1) ten sam eager loading co lista
+    trasy, zamowienia_wg_trasy, punkty = routes.wczytaj_trasy(zapytanie=zapytanie)   # (I1) ten sam eager loading co lista
     for trasa in trasy:
         if routing.przelicz(trasa, punkty):
             db.session.commit()
             # (M7) Commit wygasił wszystkie trasy, zamówienia i punkty — bez ponownego
             # wczytania serializacja reszty tras szłaby wiersz po wierszu (setki zapytań).
             # R8: po pierwszym przeliczeniu kończymy — reszta przeliczy się w kolejnych żądaniach.
-            trasy, zamowienia_wg_trasy, punkty = _wczytaj_trasy(zapytanie, swieze=True)
+            trasy, zamowienia_wg_trasy, punkty = routes.wczytaj_trasy(zapytanie=zapytanie, swieze=True)
             break
     wynik = [{
         'id': trasa.id, 'nazwa': trasa.name, 'status': trasa.status,

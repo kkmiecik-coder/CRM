@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 
 from extensions import db
 from modules.logging import get_structured_logger
-from modules.production.kierownik.services import bramka, stanowiska, zamowienia
+from modules.production.kierownik.services import bramka, stanowiska, trasy, zamowienia
 from modules.production.kierownik.services.bramka import blad, wymaga_kierownika
 from modules.production.routers.mobile_api import BLEDY_DO_PONOWIENIA
 from modules.production.models import ProductionOrder
@@ -111,6 +111,39 @@ def pelne_stanowisko(kod):
 def kto_teraz_pracuje():
     """„Kto teraz pracuje”: wszystkie stanowiska z obsadą, także puste (§7.5). `no-store`."""
     return no_store_json(stanowiska.obsada())
+
+
+# --- Trasy transportu własnego (odczyty; kontrakt §8.1, §8.2) --------------------------------------------------------
+# Czyste odczyty: bez przeliczania przebiegu (ORS) i bez commitów — panel tras robi to w samym GET, tablet kierownika nie.
+
+@kierownik_mobile_bp.route('/routes', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def lista_tras():
+    """Lista tras: aktywne (także robocze) i wykonane z ostatnich 30 dni, albo wg `status`/`od`/`do` (§8.1). Słaby ETag."""
+    try:
+        parametry = trasy.wczytaj_parametry(request.args)
+    except trasy.BladParametru as e:
+        return blad('dane_niepoprawne', str(e), 400)
+    dane = trasy.lista(**parametry)
+    etag = trasy.etag_listy(dane)
+    if if_none_match(etag):
+        return not_modified(etag, max_age=MAX_AGE_LISTY)
+    return cached_json(dane, etag, max_age=MAX_AGE_LISTY)
+
+
+@kierownik_mobile_bp.route('/routes/<int:route_id>', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def szczegoly_trasy(route_id):
+    """Trasa z przystankami, stanami, punktami na mapie i ostatnim zapisanym przebiegiem (§8.2). ETag, `max-age=0`."""
+    dane = trasy.szczegoly(route_id)
+    if dane is None:
+        return blad('trasa_nieznana', u'Nie ma takiej trasy.', 404)
+    etag = trasy.etag_szczegolow(route_id, dane)
+    if if_none_match(etag):
+        return not_modified(etag, max_age=0)
+    return cached_json(dane, etag, max_age=0)
 
 
 # --- Zapisy -----------------------------------------------------------------------------------------------------
