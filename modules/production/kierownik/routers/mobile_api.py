@@ -67,6 +67,10 @@ def historia_pozycji(product_id):
 
 MAX_POZYCJI_W_ZADANIU = 500
 OPIS_ZMIANY_STATUSU = u'zmiana statusu przez kierownika hali'
+# Statusy ustawiane z tabletu kierownika (kontrakt §4.1). Zbiór panelu (`zmiana_statusu.DOZWOLONE_STATUSY`) zostaje
+# bez zmian, ale zawiera jeszcze stare `w_realizacji`: pozycja w tym statusie nie stoi w żadnej kolejce stanowiska
+# (brak sygnału, kafla na stole i wiersza w kolejce), więc z tabletu go nie oferujemy.
+STATUSY_KIEROWNIKA = zmiana_statusu.DOZWOLONE_STATUSY - {'w_realizacji'}
 
 
 def _zapis_z_ponowieniem(akcja):
@@ -132,9 +136,9 @@ def _wczytaj_zmiane_statusu(dane):
     status = dane.get('status')
     if not isinstance(status, str) or not status:
         return None, blad('dane_niepoprawne', u'Brakuje nowego statusu.', 400)
-    if status not in zmiana_statusu.DOZWOLONE_STATUSY:
+    if status not in STATUSY_KIEROWNIKA:
         return None, blad('status_niedozwolony', u'Tego statusu nie można ustawić z tabletu kierownika.', 400,
-                          dozwolone=sorted(zmiana_statusu.DOZWOLONE_STATUSY))
+                          dozwolone=sorted(STATUSY_KIEROWNIKA))
     return (ids, status), None
 
 

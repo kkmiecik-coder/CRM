@@ -201,10 +201,28 @@ def test_status_niedozwolony_400_z_lista(client, tablet):
         assert r.status_code == 400, (status, r.get_data()[:300])
         dane = r.get_json()
         assert dane['error'] == 'status_niedozwolony' and dane['message']
-        assert dane['dozwolone'] == sorted(zmiana_statusu.DOZWOLONE_STATUSY)
-        assert 'wstrzymane' in dane['dozwolone'] and 'zweryfikowane' not in dane['dozwolone']
+        # Kontrakt §4.1, kolumna „Kierownik może ustawić” = tak (wypisane wprost, nie z kodu).
+        assert dane['dozwolone'] == sorted([
+            'czeka_na_wyciecie', 'czeka_na_skladanie', 'czeka_na_sklejanie', 'czeka_na_formatowanie',
+            'czeka_na_krawedzie', 'czeka_na_lakiernie', 'czeka_na_pakowanie', 'spakowane', 'wstrzymane',
+            'anulowane'])
+        for zakazany in ('w_realizacji', 'czeka_na_logistyke', 'zweryfikowane', 'zaladowane', 'dostarczone'):
+            assert zakazany not in dane['dozwolone']
     assert _status(pid) == 'czeka_na_formatowanie'
     assert ProcessedMobileOperation.query.count() == 0           # 4xx niezapamiętane pod X-Operation-Id
+
+
+def test_w_realizacji_niedozwolone_400_bez_zapisu(client, tablet):
+    """Stary status `w_realizacji` zostaje poza każdą kolejką stanowiska — z tabletu go nie ustawiamy (§4.1)."""
+    z = zamowienie(statusy=('czeka_na_formatowanie',), numer_wewnetrzny='26/00722', bl_id=910722)
+    (pid,) = _id_pozycji(z)
+
+    r = _zmien(client, tablet, [pid], 'w_realizacji', op_id='op-w-realizacji')
+
+    assert r.status_code == 400, r.get_data()[:300]
+    assert r.get_json()['error'] == 'status_niedozwolony' and 'w_realizacji' not in r.get_json()['dozwolone']
+    assert _status(pid) == 'czeka_na_formatowanie'
+    assert ProcessedMobileOperation.query.count() == 0
 
 
 @pytest.mark.parametrize('cialo', [
