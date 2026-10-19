@@ -20,7 +20,9 @@ from extensions import db
 from modules.production.logistics import sposoby
 from modules.production.logistics.models import Route, RouteStop
 from modules.production.logistics.services import routes, weryfikacja
-from modules.production.models import ProductionOrder, ProductionProduct, get_local_now
+from modules.production.models import (
+    ProductionOrder, ProductionProduct, ProductionStationEventWorker, ProductionWorker, get_local_now,
+)
 from modules.production.priorytety.services import kolejka, widok
 from modules.production.services import archiwum_zamowien, order_timeline_service, product_history_service
 from modules.production.utils.cache import make_weak_etag
@@ -568,15 +570,37 @@ def _wpis_zdarzenia(wpis, etykiety):
     return wynik
 
 
-def _wpisy_pracy(wpis):
-    """Grupa pracy stanowiska (zwinięta przez serwis historii) z powrotem na pojedyncze odbicia; cofnięcie to jeden wpis."""
-    if wpis['kind'] == 'reject':
-        return [{'kiedy': wpis['at'], 'rodzaj': 'praca', 'stanowisko': wpis['station_code'],
-                 'zmiana': wpis['delta'], 'kto': wpis['actor_label'], 'zrodlo': wpis['source']}]
-    # Kto fizycznie pracował przy stanowisku (profile pracowników); bez nich nazwa urządzenia albo „System”.
-    kto = u', '.join(wpis.get('workers') or []) or wpis['actor_label']
-    return [{'kiedy': pod['at'], 'rodzaj': 'praca', 'stanowisko': wpis['station_code'], 'zmiana': pod['delta'],
-             'kto': kto, 'zrodlo': pod.get('source')} for pod in wpis['entries']]
+def _pracownicy_odbic(wpisy_pracy):
+    """
+    {id zdarzenia: ["Adam K."]} — pracownicy przypisani do KONKRETNEGO odbicia (`prod_station_event_workers`).
+    Jedno zapytanie na całą historię pozycji, niezależnie od liczby odbić.
+    """
+    ids = [pod['event_id'] for wpis in wpisy_pracy
+           for pod in (wpis['entries'] if wpis['kind'] == 'work' else [wpis]) if pod.get('event_id') is not None]
+    if not ids:
+        return {}
+    wiersze = (db.session.query(ProductionStationEventWorker.event_id, ProductionWorker)
+               .join(ProductionWorker, ProductionWorker.id == ProductionStationEventWorker.worker_id)
+               .filter(ProductionStationEventWorker.event_id.in_(ids))
+               .order_by(ProductionStationEventWorker.event_id, ProductionWorker.id).all())
+    wynik = {}
+    for event_id, pracownik in wiersze:
+        nazwy = wynik.setdefault(event_id, [])
+        if pracownik.short_name not in nazwy:
+            nazwy.append(pracownik.short_name)
+    return wynik
+
+
+def _wpisy_pracy(wpis, pracownicy):
+    """
+    Grupa pracy stanowiska (zwinięta przez serwis historii) z powrotem na pojedyncze odbicia; cofnięcie to jeden
+    wpis. `kto` znaczy to samo w każdym wierszu: pracownik(cy) przypisani do TEGO odbicia, a gdy odbicie nie ma
+    atrybucji (praca bez wybranego profilu, automat) — etykieta urządzenia albo „System”.
+    """
+    odbicia = [wpis] if wpis['kind'] == 'reject' else wpis['entries']
+    return [{'kiedy': odb['at'], 'rodzaj': 'praca', 'stanowisko': wpis['station_code'], 'zmiana': odb['delta'],
+             'kto': u', '.join(pracownicy.get(odb.get('event_id')) or []) or wpis['actor_label'],
+             'zrodlo': odb.get('source')} for odb in odbicia]
 
 
 def historia(product_id):
@@ -589,12 +613,13 @@ def historia(product_id):
         return None
     surowa = product_history_service.build_product_history(product_id)
     etykiety = {}
+    pracownicy = _pracownicy_odbic([w for w in surowa['history'] if w['kind'] != 'status'])
     wpisy = []
     for wpis in surowa['history']:
         if wpis['kind'] == 'status':
             wpisy.append(_wpis_zdarzenia(wpis, etykiety))
         else:
-            wpisy.extend(_wpisy_pracy(wpis))
+            wpisy.extend(_wpisy_pracy(wpis, pracownicy))
     wpisy.sort(key=_kiedy, reverse=True)
     return {
         'product_id': product_id,

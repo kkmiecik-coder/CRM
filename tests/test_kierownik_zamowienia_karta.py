@@ -316,6 +316,34 @@ def test_historia_status_i_praca_od_najnowszych(tablet, client):
     assert historia[4]['kto'] == 'System' and historia[4]['zrodlo'] == 'system'
 
 
+def test_historia_praca_ma_pracownika_kazdego_odbicia(tablet, client):
+    """`kto` na wierszu `praca` to pracownik TEGO odbicia, nie suma pracowników stanowiska (§5.3)."""
+    z = zamowienie(statusy=('czeka_na_formatowanie',), numer_wewnetrzny='26/00534', bl_id=910534)
+    p = z.products[0]
+    adam, bartek = _pracownik('Adam', 'Kowalski'), _pracownik('Bartek', 'Nowak')
+    db.session.add(ProductionDevice(device_id='TAB-S2', device_name='Tablet Sklejanie', station_code='gluing'))
+    _praca(p, 'gluing', 1, 1, datetime(2026, 10, 17, 12, 40, 1), 'TAB-S2', adam)
+    _praca(p, 'gluing', 1, 2, datetime(2026, 10, 17, 13, 2, 10), 'TAB-S2', bartek)
+    # Dwoje przy jednym odbiciu (praca zespołowa) i cofnięcie z własnym pracownikiem.
+    e = _praca(p, 'gluing', 1, 3, datetime(2026, 10, 17, 13, 10, 0), 'TAB-S2', adam)
+    db.session.add(ProductionStationEventWorker(event_id=e.id, worker_id=bartek.id, share=0.5))
+    _praca(p, 'gluing', -1, 2, datetime(2026, 10, 17, 13, 20, 0), 'TAB-S2', bartek)
+    # Odbicie bez atrybucji (praca bez wybranego profilu) wraca do nazwy urządzenia.
+    _praca(p, 'gluing', 1, 3, datetime(2026, 10, 17, 13, 30, 0), 'TAB-S2')
+    db.session.commit()
+
+    odp = _historia(client, tablet, p.id)
+    assert [(w['kiedy'], w['zmiana'], w['kto']) for w in odp['historia']] == [
+        ('2026-10-17T13:30:00', 1, 'Tablet Sklejanie'),
+        ('2026-10-17T13:20:00', -1, 'Bartek N.'),
+        ('2026-10-17T13:10:00', 1, 'Adam K., Bartek N.'),
+        ('2026-10-17T13:02:10', 1, 'Bartek N.'),
+        ('2026-10-17T12:40:01', 1, 'Adam K.'),
+    ]
+    # Przepływ zostaje przy poziomie stanowiska: obaj pracownicy.
+    assert odp['przeplyw']['gluing']['pracownicy'] == ['Adam K.', 'Bartek N.']
+
+
 def test_historia_innych_rodzajow_zdarzen(tablet, client):
     z = zamowienie(statusy=('czeka_na_wyciecie',), numer_wewnetrzny='26/00532', bl_id=910532)
     p = z.products[0]

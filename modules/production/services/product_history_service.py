@@ -30,6 +30,7 @@ def aggregate_station_events(events):
                 'device_id': e.device_id,
                 'user_id': e.user_id,
                 'source': getattr(e, 'source', None),
+                'event_id': getattr(e, 'id', None),
             })
             continue
 
@@ -86,6 +87,8 @@ def aggregate_station_events(events):
             # Źródło pojedynczego odbicia: tablet kierownika rozwija grupę z powrotem na wpisy i pokazuje
             # każdy z własnym źródłem (grupa niesie tylko źródło ostatniego zdarzenia).
             'source': getattr(e, 'source', None),
+            # Id zdarzenia: pozwala dociągnąć atrybucję pracownika dla pojedynczego odbicia.
+            'event_id': getattr(e, 'id', None),
         })
 
     for g in groups.values():
