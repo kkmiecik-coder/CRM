@@ -14,13 +14,13 @@ DANE SĄ ORIENTACYJNE tam, gdzie wchodzi pracownik: profil na tablecie wybiera s
 nie jest dowodem.
 """
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from modules.production.kierownik.services import zamowienia as zam
 from modules.production.models import get_local_now
 from modules.production.services import daily_report_service as dzienny
-from modules.production.services import reports_service
-from modules.production.services.station_catalog import station_label
+from modules.production.services import reports_service, station_events_service, worker_stats_service
+from modules.production.services.station_catalog import STATION_ORDER, resolve_station_code, station_label
 
 # Najdłuższy zakres raportów w dniach (obie granice włącznie).
 MAKS_ZAKRES_DNI = 92
@@ -140,3 +140,109 @@ def stanowiska(start, end):
         'zakonczone': {'sztuki': zakonczone['sztuki'], 'm3': _m3(zakonczone['m3'])},
         'trakownia': {'klody': trakownia['klody'], 'm3': _m3(trakownia['m3'])},
     }
+
+
+# ── wydajność pracowników (§8.6) ─────────────────────────────────────────────────────────────────────────────
+
+def _kolejnosc_procesu(kod):
+    """Klucz sortowania kodów stanowisk: kolejność procesu, nieznane kody na końcu."""
+    return STATION_ORDER.index(kod) if kod in STATION_ORDER else len(STATION_ORDER)
+
+
+def pracownicy(start, end, station=None):
+    """
+    §8.6: wydajność pracowników w zakresie `start`..`end` (włącznie), opcjonalnie na jednym stanowisku procesu.
+
+    Zły `station` (spoza `STATION_ORDER`) to `BladParametru` (400 `dane_niepoprawne`). Liczby pochodzą z
+    `worker_stats_service.raport_wydajnosci`, czyli z tej samej funkcji co zakładka „Pracownicy" w panelu i arkusz
+    „Ludzie" raportu dziennego. Ważne dla czytającego:
+
+    - `sztuki` i `m3` to UDZIAŁ pracownika: przy pracy zespołowej (N osób na jednym zdarzeniu) każdy dostaje 1/N, stąd
+      ułamki; `nieprzypisane` to praca bez wybranego profilu na tablecie;
+    - `godziny` to OBECNOŚĆ, czyli suma wszystkich sesji pracownika (także kierownika i trakowni); otwarta sesja liczy
+      się do teraz, najwyżej do limitu bezczynności i godziny nocnego zamknięcia;
+    - `tempo_m3_h` dzieli m³ przez godziny z sesji na stanowiskach procesu, więc sesja kierownika albo trakowni go nie
+      zaniża; to `None` (nie zero), gdy pracownik nie ma przypisanej pracy albo ani minuty na stanowisku procesu;
+    - tempa NIE porównujemy między stanowiskami: m³ na różnych stanowiskach to różna praca, dlatego lista jest po
+      nazwisku, a nie po wydajności;
+    - dane są orientacyjne, bo profil na tablecie wybiera się bez PIN-u (`pokrycie_atrybucji_proc` mówi, ile pracy ma
+      podpis).
+    """
+    stanowisko = (station or '').strip() or None
+    if stanowisko is not None and stanowisko not in STATION_ORDER:
+        raise BladParametru(u'Nieznane stanowisko: %s.' % stanowisko)
+    raport = worker_stats_service.raport_wydajnosci(start, end, stanowisko)
+
+    # Praca wg stanowisk z wierszy dzień × pracownik × stanowisko (po kodach; `stations` w sumach to etykiety).
+    wg_stanowisk = {}
+    for wiersz in raport['rows']:
+        kod = resolve_station_code(wiersz['station_code'])
+        suma = wg_stanowisk.setdefault(wiersz['worker_id'], {}).setdefault(kod, [0.0, 0.0])
+        suma[0] += wiersz['pieces']
+        suma[1] += wiersz['m3']
+
+    ludzie = []
+    for w in raport['worker_totals']:
+        praca = wg_stanowisk.get(w['worker_id'], {})
+        kody = sorted(praca, key=_kolejnosc_procesu)
+        ludzie.append({
+            'id': w['worker_id'],
+            'nazwa': w['worker_name'],
+            'sztuki': w['pieces'],
+            'm3': _m3(w['m3']),
+            'godziny': w['hours'],
+            'tempo_m3_h': w['pace_m3_per_hour'],
+            'stanowiska': kody,
+            'otwarta_sesja': w['open_sessions'] > 0,
+            'wg_stanowisk': [{'stanowisko': kod, 'sztuki': round(praca[kod][0], 2), 'm3': _m3(praca[kod][1])}
+                             for kod in kody],
+        })
+
+    podsumowanie = raport['summary']
+    return {
+        'start_date': start.isoformat(),
+        'end_date': end.isoformat(),
+        'station': stanowisko,
+        'pracownicy': ludzie,
+        'nieprzypisane': {'sztuki': podsumowanie['unassigned_pieces'], 'm3': _m3(podsumowanie['unassigned_m3'])},
+        'podsumowanie': {
+            'osoby': podsumowanie['workers_count'],
+            'godziny': podsumowanie['hours'],
+            'sztuki': podsumowanie['pieces'],
+            'm3': _m3(podsumowanie['m3']),
+            'pokrycie_atrybucji_proc': podsumowanie['attribution_coverage_pct'],
+        },
+    }
+
+
+# ── przerób dzień po dniu (§8.7) ─────────────────────────────────────────────────────────────────────────────
+
+def dzien_po_dniu(start, end):
+    """
+    §8.7: przerób dzień po dniu w zakresie `start`..`end` (włącznie). Lista ma KAŻDY dzień zakresu, także dni bez pracy
+    (zera), a `stanowiska` klucze wszystkich 7 stanowisk procesu.
+
+    Źródło to `station_events_service.get_station_work_per_day` (siedem zapytań, po jednym na stanowisko; ta sama
+    funkcja, która żywi raport dzienny), więc to praca ludzi netto po cofnięciach, bez automatycznych przejść.
+    `value_net` tej funkcji nie wychodzi (kontrakt §11).
+
+    UWAGA dla czytającego: `sztuki` i `m3` dnia SUMUJĄ stanowiska, więc sztuka, która tego dnia przeszła pięć
+    stanowisk, liczy się pięć razy. To miara ruchu na hali, nie wynik dnia; wynik (co zeszło z produkcji) to
+    `zakonczone_m3`, czyli Pakowanie, gdzie sztuka liczy się raz.
+    """
+    praca = {kod: station_events_service.get_station_work_per_day(kod, start, end) for kod in STATION_ORDER}
+    dni = []
+    for przesuniecie in range((end - start).days + 1):
+        dzien = start + timedelta(days=przesuniecie)
+        stanowiska = {}
+        for kod in STATION_ORDER:
+            wpis = praca[kod].get(dzien) or {}
+            stanowiska[kod] = {'sztuki': int(wpis.get('pieces', 0) or 0), 'm3': float(wpis.get('m3', 0) or 0)}
+        dni.append({
+            'data': dzien.isoformat(),
+            'sztuki': sum(s['sztuki'] for s in stanowiska.values()),
+            'm3': _m3(sum(s['m3'] for s in stanowiska.values())),
+            'zakonczone_m3': _m3(stanowiska['packaging']['m3']),
+            'stanowiska': {kod: {'sztuki': s['sztuki'], 'm3': _m3(s['m3'])} for kod, s in stanowiska.items()},
+        })
+    return {'start_date': start.isoformat(), 'end_date': end.isoformat(), 'dni': dni}

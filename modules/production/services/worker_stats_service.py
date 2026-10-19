@@ -38,7 +38,7 @@ from ..models import (
     ProductionProduct, ProductionStationEvent, ProductionStationEventWorker,
     ProductionWorker, ProductionWorkerSession, get_local_now,
 )
-from .station_catalog import resolve_station_code
+from .station_catalog import STATION_ORDER, resolve_station_code
 from .worker_service import station_label
 
 logger = get_structured_logger('production.worker_stats')
@@ -333,21 +333,17 @@ def praca_nieprzypisana(start_date, end_date, station=None):
     return wiersze
 
 
-def czas_pracy(start_date, end_date, worker_id=None, station=None):
+def minuty_sesji_zakresu(start_date, end_date, worker_id=None, station=None):
     """
-    {(worker_id, 'YYYY-MM-DD'): minuty} z sesji pracy.
+    ({(worker_id, 'YYYY-MM-DD'): minuty}, {(worker_id, 'YYYY-MM-DD'): minuty}) z sesji pracy.
 
-    `station` MUSI być przekazywane razem z filtrem stanowiska na wydajności —
-    inaczej licznik (m3 z jednego stanowiska) dzieli się przez mianownik (czas
-    ze wszystkich), co zaniża tempo tym, którzy pracują na kilku stanowiskach.
+    Pierwszy słownik to OBECNOŚĆ: wszystkie sesje, na dowolnym stanowisku (także trakownia, Weryfikacja, Dostawa
+    i tablet kierownika). Drugi to te same minuty tylko z sesji na stanowiskach PROCESU (`STATION_ORDER`) i to on jest
+    mianownikiem tempa m3/h. Sesja kierownika albo trakowni nie ma eventów stanowiskowych, więc wliczona do mianownika
+    zaniżałaby tempo człowieka, który przy okazji pracuje też na hali. Kod stanowiska sesji przechodzi przez
+    resolve_station_code(), bo stare tablety wysyłają jeszcze alias sprzed rozdziału wykańczalni.
 
-    Sesja otwarta liczy się do teraz, ale NIE dłużej niż do nocnego cutoffu
-    swojej doby. Bez tego ogranicznika sesja zapomniana miesiąc temu — a taka
-    powstanie, dopóki nie ma wpisu w crontabie domykającego zapomniane sesje —
-    dorzucałaby do jednej doby setki godzin i rozwalała tempo w raporcie.
-
-    Liczone w Pythonie, nie w SQL: TIMESTAMPDIFF nie istnieje w SQLite,
-    a wolumen danych jest znikomy.
+    Liczone w jednym przebiegu po sesjach, żeby obie sumy miały tę samą sesję w tym samym stanie.
     """
     from .worker_service import get_night_cutoff, get_idle_timeout_minutes
 
@@ -367,11 +363,34 @@ def czas_pracy(start_date, end_date, worker_id=None, station=None):
     idle_minut = get_idle_timeout_minutes()
 
     minuty = {}
+    minuty_procesu = {}
     for sesja in zapytanie.all():
         trwanie = minuty_sesji(sesja, teraz, cutoff, idle_minut)
         klucz = (sesja.worker_id, sesja.work_date.isoformat())
         minuty[klucz] = minuty.get(klucz, 0) + trwanie
-    return minuty
+        if resolve_station_code(sesja.station_code) in STATION_ORDER:
+            minuty_procesu[klucz] = minuty_procesu.get(klucz, 0) + trwanie
+    return minuty, minuty_procesu
+
+
+def czas_pracy(start_date, end_date, worker_id=None, station=None):
+    """
+    {(worker_id, 'YYYY-MM-DD'): minuty} z sesji pracy — OBECNOŚĆ, czyli wszystkie sesje.
+
+    `station` MUSI być przekazywane razem z filtrem stanowiska na wydajności —
+    inaczej licznik (m3 z jednego stanowiska) dzieli się przez mianownik (czas
+    ze wszystkich), co zaniża tempo tym, którzy pracują na kilku stanowiskach.
+
+    Sesja otwarta liczy się do teraz, ale NIE dłużej niż do nocnego cutoffu
+    swojej doby. Bez tego ogranicznika sesja zapomniana miesiąc temu — a taka
+    powstanie, dopóki nie ma wpisu w crontabie domykającego zapomniane sesje —
+    dorzucałaby do jednej doby setki godzin i rozwalała tempo w raporcie.
+
+    Liczone w Pythonie, nie w SQL: TIMESTAMPDIFF nie istnieje w SQLite,
+    a wolumen danych jest znikomy. Mianownik tempa (tylko stanowiska procesu)
+    daje minuty_sesji_zakresu().
+    """
+    return minuty_sesji_zakresu(start_date, end_date, worker_id, station)[0]
 
 
 def liczba_eventow_pracy(start_date, end_date, station=None):
@@ -546,14 +565,19 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
     Komplet danych do raportu: wiersze, sumy per pracownik, sumy dzienne,
     praca nieprzypisana i podsumowanie okresu.
 
-    Tempo = m3 / (minuty / 60). Liczymy je tylko tam, gdzie pracownik ma
-    JAKĄKOLWIEK atrybucję: bez sesji tempo byłoby dzieleniem przez zero,
-    a bez atrybucji — dzieleniem zera, czyli „0 m3/h" postawionym przy
-    nazwisku człowieka, o którym raport nic nie wie.
+    Tempo = m3 / (minuty sesji na stanowiskach procesu / 60). Liczymy je tylko
+    tam, gdzie pracownik ma JAKĄKOLWIEK atrybucję: bez sesji tempo byłoby
+    dzieleniem przez zero, a bez atrybucji — dzieleniem zera, czyli „0 m3/h"
+    postawionym przy nazwisku człowieka, o którym raport nic nie wie.
+
+    `hours` i `minutes` to OBECNOŚĆ (wszystkie sesje), ale mianownik tempa to
+    wyłącznie sesje na stanowiskach z STATION_ORDER (`process_minutes`): sesja
+    kierownika hali albo trakowni nie ma eventów stanowiskowych i wliczona do
+    mianownika zaniżałaby m3/h człowieka, który pracuje też na hali.
     """
     wiersze = wydajnosc_pracownikow(start_date, end_date, station, worker_id)
     # Ten sam filtr stanowiska co w liczniku — patrz docstring czas_pracy()
-    minuty = czas_pracy(start_date, end_date, worker_id, station)
+    minuty, minuty_procesu = minuty_sesji_zakresu(start_date, end_date, worker_id, station)
     nieprzypisane = [] if worker_id else praca_nieprzypisana(start_date, end_date, station)
 
     # Sumy per pracownik
@@ -562,7 +586,7 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
         wpis = per_pracownik.setdefault(w['worker_id'], {
             'worker_id': w['worker_id'],
             'worker_name': w['worker_name'],
-            'pieces': 0.0, 'm3': 0.0, 'minutes': 0, 'stations': set(),
+            'pieces': 0.0, 'm3': 0.0, 'minutes': 0, 'process_minutes': 0, 'stations': set(),
             'm2_olej': 0.0, 'm2_lakier': 0.0,
         })
         wpis['pieces'] += w['pieces']
@@ -584,7 +608,7 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             per_pracownik[pracownik.id] = {
                 'worker_id': pracownik.id,
                 'worker_name': pracownik.full_name,
-                'pieces': 0.0, 'm3': 0.0, 'minutes': 0, 'stations': set(),
+                'pieces': 0.0, 'm3': 0.0, 'minutes': 0, 'process_minutes': 0, 'stations': set(),
                 'm2_olej': 0.0, 'm2_lakier': 0.0,
             }
 
@@ -592,12 +616,18 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
         wpis = per_pracownik.get(wid)
         if wpis is not None:
             wpis['minutes'] += minut
+    for (wid, _dzien), minut in minuty_procesu.items():
+        wpis = per_pracownik.get(wid)
+        if wpis is not None:
+            wpis['process_minutes'] += minut
 
     otwarte = otwarte_sesje(start_date, end_date, worker_id, station)
 
     podsumowanie_pracownikow = []
     for wpis in per_pracownik.values():
         godziny = wpis['minutes'] / 60 if wpis['minutes'] else 0
+        # Mianownik tempa: tylko sesje na stanowiskach procesu (patrz docstring funkcji).
+        godziny_procesu = wpis['process_minutes'] / 60 if wpis['process_minutes'] else 0
         # `stations` jest niepuste dokładnie wtedy, gdy pracownik ma choć jeden
         # wiersz atrybucji — to jedyny sygnał odróżniający „zmierzone zero"
         # od „nie wiemy nic".
@@ -611,6 +641,7 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             # stanowiskach powierzchni się nie liczy, więc to samo zero.
             'painting_m2': para_m2(wpis['m2_olej'], wpis['m2_lakier']),
             'minutes': wpis['minutes'],
+            'process_minutes': wpis['process_minutes'],
             'hours': _zaokraglij(godziny, 1),
             'stations': sorted(wpis['stations']),
             # Bramka na atrybucji, nie tylko na godzinach. Sama bramka `if
@@ -619,8 +650,8 @@ def raport_wydajnosci(start_date, end_date, station=None, worker_id=None):
             # atrybucji) dostawał „tempo 0.0 m3/h", czyli zarzut bezczynności
             # postawiony na podstawie braku danych. Docstring obok obiecuje
             # dla takiego wiersza „8,0 h / 0 m3 / tempo —" i to jest ta obietnica.
-            'pace_m3_per_hour': (_zaokraglij(wpis['m3'] / godziny, 3)
-                                 if godziny and ma_atrybucje else None),
+            'pace_m3_per_hour': (_zaokraglij(wpis['m3'] / godziny_procesu, 3)
+                                 if godziny_procesu and ma_atrybucje else None),
             'has_attribution': ma_atrybucje,
             # Wiersz z otwartą sesją ma mianownik, który rośnie w trakcie
             # oglądania — front oznacza go gwiazdką zamiast udawać pomiar.

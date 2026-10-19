@@ -763,9 +763,13 @@ def obsada_vs_przerob(start_date, end_date):
     sklejenie godziny). To ten sam powód, dla którego tabela wydajności jest
     sortowana po nazwisku, a nie po m3.
 
-    in_pipeline=False dostaje trakownia: sesja tam być może, ale
-    prod_station_events tego kodu nie zna (to rejestr surowca), więc wyszłoby
+    in_pipeline=False dostaje każdy kod spoza STATION_ORDER: trakownia,
+    Weryfikacja, Dostawa i tablet kierownika hali (`manager`). Sesja tam być
+    może, ale prod_station_events tych kodów nie zna (trakownia to rejestr
+    surowca, reszta to telefony i tablet bez kolejki statusów), więc wyszłoby
     „8 h / 0 m3" czytane jako bezczynność. Tempa dla takich wierszy nie liczymy.
+    Flaga wynika z przynależności do STATION_ORDER, nie z listy na sztywno —
+    nowy kod poza procesem dostaje ją sam.
 
     TEMPO LICZY SIĘ Z DÓB, KTÓRE MAJĄ SESJE — nie z całego zakresu. Licznik
     brany z całego okna przy mianowniku istniejącym tylko dla części dób dawał

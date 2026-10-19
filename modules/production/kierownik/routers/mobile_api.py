@@ -201,6 +201,32 @@ def raport_stanowisk():
     return no_store_json(raporty.stanowiska(start, koniec))
 
 
+@kierownik_mobile_bp.route('/reports/workers', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def raport_pracownikow():
+    """Wydajność pracowników w zakresie, opcjonalnie na jednym stanowisku procesu (`station`) (§8.6). `no-store`."""
+    start, koniec, odmowa = _zakres_raportu()
+    if odmowa is not None:
+        return odmowa
+    try:
+        dane = raporty.pracownicy(start, koniec, request.args.get('station'))
+    except raporty.BladParametru as e:
+        return blad('dane_niepoprawne', str(e), 400)
+    return no_store_json(dane)
+
+
+@kierownik_mobile_bp.route('/reports/daily', methods=['GET'])
+@require_device_token
+@wymaga_kierownika
+def raport_dzien_po_dniu():
+    """Przerób dzień po dniu: każdy dzień zakresu, także z zerami, i wszystkie 7 stanowisk (§8.7). `no-store`."""
+    start, koniec, odmowa = _zakres_raportu()
+    if odmowa is not None:
+        return odmowa
+    return no_store_json(raporty.dzien_po_dniu(start, koniec))
+
+
 # --- Zapisy -----------------------------------------------------------------------------------------------------
 
 MAX_POZYCJI_W_ZADANIU = 500
