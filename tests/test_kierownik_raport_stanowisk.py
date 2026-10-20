@@ -264,6 +264,25 @@ def test_kolejka_i_dni_zapasu_to_stan_teraz(app, client, tablet):
     assert _stanowisko(dane, 'cutting')['dni_zapasu'] in (None, 0.0)
 
 
+def test_wstrzymane_osobno_od_kolejek_i_niezalezne_od_zakresu(app, client, tablet):
+    """Wstrzymane: stan teraz, poza `kolejka_*`; bez wstrzymanych same zera."""
+    puste = _ok(client, tablet)
+    assert puste['wstrzymane'] == {'pozycji': 0, 'sztuki': 0, 'm3': 0.0}
+
+    o = zamowienie(statusy=())
+    _poz(o, status='wstrzymane', quantity=24, volume=0.0330625)
+    _poz(o, status='wstrzymane', quantity=2, volume=0.5)
+    _poz(o, status='czeka_na_sklejanie', quantity=10, volume=0.5)
+    _poz(o, status='spakowane', quantity=7, volume=1.0)
+
+    dane = _ok(client, tablet, start_date='2020-01-01', end_date='2020-01-02')
+
+    assert dane['wstrzymane'] == {'pozycji': 2, 'sztuki': 26, 'm3': pytest.approx(1.7935)}
+    # Nie wchodzi do kolejek stanowisk: kolejka sklejania to tylko jej własna pozycja.
+    assert _stanowisko(dane, 'gluing')['kolejka_m3'] == pytest.approx(5.0)
+    assert sum(s['kolejka_m3'] for s in dane['stanowiska']) == pytest.approx(5.0)
+
+
 def test_dni_zapasu_z_przerobu_14_dni_roboczych(app, client, tablet):
     """Przerób z okna dni roboczych dzieli kolejkę: te same dni zapasu co w panelu."""
     from modules.production.services import reports_service

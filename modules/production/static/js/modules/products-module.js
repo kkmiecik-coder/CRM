@@ -3445,18 +3445,25 @@ class ProductsModule {
         const orders = this.state.filteredOrders;
 
         // Statystyki liczone per niespakowana sztuka — pomijamy pozycje
-        // spakowane (i dalej: STATUSY_PO_SPAKOWANIU) oraz 'anulowane'; remaining = quantity - quantity_done_packaging.
+        // spakowane (i dalej: STATUSY_PO_SPAKOWANIU), 'anulowane' oraz 'wstrzymane' (nie stoją w kolejce żadnego
+        // stanowiska; ich objętość pokazujemy osobno); remaining = quantity - quantity_done_packaging.
         const archiveMode = this.state.viewMode === 'archive';
         let totalCount = 0;
         let totalQuantity = 0;
         let totalVolume = 0;
         let totalValue = 0;
+        let heldVolume = 0;
         const activeOrderKeys = new Set();
         const filteredForBreakdown = [];
 
         products.forEach(p => {
             const qty = parseInt(p.quantity) || 0;
             const status = p.current_status;
+
+            if (!archiveMode && status === 'wstrzymane') {
+                heldVolume += (parseFloat(p.volume_m3) || 0) * qty;
+                return;
+            }
 
             if (archiveMode) {
                 totalCount += 1;
@@ -3488,6 +3495,7 @@ class ProductsModule {
             filteredCount: totalCount,
             totalQuantity: totalQuantity,
             totalVolume: totalVolume,
+            heldVolume: heldVolume,
             totalValue: totalValue,
             urgentCount: orders.filter(o => {
                 if (!o.deadline) return false;
@@ -3517,6 +3525,11 @@ class ProductsModule {
         this.updateElementText('il-stats-orders', s.orderCount);
         this.updateElementText('il-stats-products', s.totalCount);
         this.updateElementText('il-stats-volume', `${s.totalVolume.toFixed(4)} m³`);
+        const heldEl = document.getElementById('il-stats-volume-held');
+        if (heldEl) {
+            heldEl.textContent = s.heldVolume > 0 ? `wstrzymane ${s.heldVolume.toFixed(2).replace('.', ',')} m³` : '';
+            heldEl.hidden = !(s.heldVolume > 0);
+        }
         this.updateElementText('il-stats-value', `${s.totalValue.toLocaleString('pl-PL', {minimumFractionDigits: 2})} zł`);
 
         const urgentEl = document.getElementById('il-stats-urgent');

@@ -632,6 +632,7 @@ def products_tab_content():
         # Statystyki liczone per niespakowana sztuka
         # (remaining = quantity - quantity_done_packaging). Pozycje w pełni spakowane
         # są ignorowane mimo że należą do nieukończonych jeszcze zamówień.
+        # Wstrzymane też nie wchodzą do statystyk (nie stoją w kolejce żadnego stanowiska).
         # Archiwum ma własne statystyki — patrz `_archive_stats`.
         total_volume = 0.0
         total_value = 0.0
@@ -639,7 +640,7 @@ def products_tab_content():
         total_count = 0
         stats_breakdown_source = []
         for p in products_data:
-            if p.get('current_status') in sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',):
+            if p.get('current_status') in sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane', 'wstrzymane'):
                 continue
             qty = int(p.get('quantity') or 0)
             done = int(p.get('quantity_done_packaging') or 0)

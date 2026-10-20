@@ -295,7 +295,8 @@ def test_statystyki_zgodne_z_webem(z_webem, tablet, client):
     z1 = zamowienie(statusy=('czeka_na_wyciecie', 'czeka_na_krawedzie', 'anulowane'),
                     numer_wewnetrzny='26/00101', bl_id=900101)
     z2 = zamowienie(statusy=('spakowane', 'czeka_na_formatowanie'), numer_wewnetrzny='26/00102', bl_id=900102)
-    z3 = zamowienie(statusy=('zweryfikowane',), numer_wewnetrzny='26/00103', bl_id=900103)
+    # Wstrzymana pozycja nie wchodzi do „do spakowania” ani w webie, ani na tablecie.
+    z3 = zamowienie(statusy=('zweryfikowane', 'wstrzymane'), numer_wewnetrzny='26/00103', bl_id=900103)
     _zamkniete('26/00104', 900104)   # archiwum — poza aktywnymi w obu miejscach
     # Częściowo spakowana pozycja: liczą się tylko niespakowane sztuki.
     czesciowa = sorted(z1.products, key=lambda p: p.product_sequence_in_order)[0]
@@ -309,7 +310,7 @@ def test_statystyki_zgodne_z_webem(z_webem, tablet, client):
     s = _lista(client, tablet)['statystyki']
     assert s['sztuk_do_spakowania'] == stats_web['total_quantity']
     assert s['m3_do_spakowania'] == pytest.approx(stats_web['total_volume'], abs=1e-4)
-    assert s['sztuk_do_spakowania'] == 3 + 2 + 2   # (5-2) + krawędzie 2 + formatowanie 2
+    assert s['sztuk_do_spakowania'] == 3 + 2 + 2   # (5-2) + krawędzie 2 + formatowanie 2, bez wstrzymanej
     # Archiwalne zamówienie nie wchodzi do żadnego z liczników.
     assert _lista(client, tablet, view='archive')['statystyki'].get('sztuk_do_spakowania') is None
 

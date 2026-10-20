@@ -272,7 +272,8 @@ def statystyki(zbior, widok, arch):
     `pozycji` liczy wszystkie pozycje, `sztuk` i `m3` bez anulowanych (także w `wg_statusu`, gdzie wiersz
     „anulowane” ma `sztuk` i `m3` równe 0, żeby suma wierszy zgadzała się z liczbami ogólnymi). `*_do_spakowania`
     (tylko `active`) to licznik zakładki Produkty: niespakowane sztuki (`quantity - quantity_done_packaging`)
-    pozycji spoza `STATUSY_PO_SPAKOWANIU` i anulowanych. `sredni_czas_realizacji_dni` (tylko `archive`) z
+    pozycji spoza `STATUSY_PO_SPAKOWANIU`, anulowanych i wstrzymanych (wstrzymana nie stoi
+    w kolejce żadnego stanowiska). `sredni_czas_realizacji_dni` (tylko `archive`) z
     `archiwum_zamowien.statystyki_archiwum`.
     """
     ids = zbior.order_by(None).subquery()
@@ -294,7 +295,7 @@ def statystyki(zbior, widok, arch):
     m3 = 0.0
     do_spakowania_szt = 0
     do_spakowania_m3 = 0.0
-    nieliczone = sposoby.STATUSY_PO_SPAKOWANIU + (_ANULOWANE,)
+    nieliczone = sposoby.STATUSY_PO_SPAKOWANIU + (_ANULOWANE, 'wstrzymane')
     for status, ile, szt, objetosc_sumy, pozostalo_szt, pozostalo_m3 in sorted(
             wiersze, key=lambda w: STATUSY.index(w[0]) if w[0] in STATUSY else len(STATUSY)):
         liczy_sie = status != _ANULOWANE

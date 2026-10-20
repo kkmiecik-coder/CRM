@@ -261,7 +261,7 @@ zakończonych, `all` od najnowszych.
 | `pozycje[]` | lista | wszystkie pozycje zamówienia w skrócie, w kolejności z zamówienia |
 | `statystyki` | obiekt | na **całym** przefiltrowanym zbiorze zamówień, nie na stronie. Liczą wszystkie pozycje tych zamówień, także te, które same nie pasują do `status` ani `search` (widok jest zamówieniowy); bez filtrów wynik jest identyczny jak w webie |
 | `statystyki.wg_statusu` | mapa | rozkład pozycji według statusu; brak klucza = 0. Wiersz `anulowane` ma `pozycji` > 0, ale `sztuk: 0` i `m3: 0.0`, żeby suma wierszy zgadzała się z liczbami ogólnymi |
-| `statystyki.*_do_spakowania` | liczby | tylko `active`: sztuki jeszcze niespakowane (tak samo jak licznik w webie) |
+| `statystyki.*_do_spakowania` | liczby | tylko `active`: sztuki jeszcze niespakowane (tak samo jak licznik w webie), bez pozycji anulowanych i `wstrzymane` (te drugie osobno: §8.5 `wstrzymane`) |
 | `statystyki.sredni_czas_realizacji_dni` | liczba | tylko `archive` |
 
 **Błędy:** 400 `dane_niepoprawne` (zły `view`, `status`, data, `page`, `per_page`).
@@ -779,7 +779,7 @@ ETag, `max-age=15`.
       "notatki": null, "rozpoczeto": "2026-10-15T07:30:00", "zakonczono": "2026-10-15T14:10:00"
     }
   ],
-  "podsumowanie": {"otwarte": 2, "klody_dzis": 18, "m3_dzis": 5.211, "do_rozliczenia": 3, "postep_proc": 64},
+  "podsumowanie": {"otwarte": 2, "klody_dzis": 18, "m3_dzis": 5.211, "do_rozliczenia": 3, "postep_proc": 64.0},
   "prog_odchylki_proc": 3.0
 }
 ```
@@ -825,7 +825,8 @@ Domyślnie dziś. Zakres najwyżej 92 dni, inaczej 400 `zakres_niepoprawny`. `no
   ],
   "hala": {"sztuki": 512, "m3": 71.0432, "pozycji": 301, "zamowien": 96, "cofniecia": 5},
   "zakonczone": {"sztuki": 88, "m3": 12.9001},
-  "trakownia": {"klody": 120, "m3": 33.904}
+  "trakownia": {"klody": 120, "m3": 33.904},
+  "wstrzymane": {"pozycji": 1, "sztuki": 24, "m3": 0.7935}
 }
 ```
 
@@ -837,6 +838,7 @@ Domyślnie dziś. Zakres najwyżej 92 dni, inaczej 400 `zakres_niepoprawny`. `no
 | `kolejka_szt`, `kolejka_m3`, `dni_zapasu` | stan **teraz** (niezależny od zakresu); `dni_zapasu` = kolejka / średni dzienny przerób z 14 dni roboczych, null bez danych. Stanowisko z pustą kolejką i bez przerobu ma `0.0`, nie null — to parytet z panelem; appka nie powinna pokazywać tego jako ostrzeżenia „0 dni zapasu” |
 | `zakonczone` | Pakowanie, czyli to, co wyszło z produkcji |
 | `trakownia` | surowiec zmierzony na trakowni; nie wchodzi do sumy `hala` |
+| `wstrzymane` | pozycje w statusie `wstrzymane` (`pozycji`, `sztuki`, `m3`), stan **teraz**, niezależny od zakresu. Wstrzymana pozycja nie stoi w kolejce żadnego stanowiska, więc nie ma jej w `kolejka_*`; suma `kolejka_m3` ze wszystkich stanowisk + `wstrzymane.m3` to cała niespakowana praca. Zawsze obecne, bez wstrzymanych same zera |
 
 ### 8.6 `GET /api/mobile/manager/reports/workers`, czyli wydajność pracowników
 

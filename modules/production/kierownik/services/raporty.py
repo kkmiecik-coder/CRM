@@ -16,8 +16,11 @@ nie jest dowodem.
 import re
 from datetime import date, timedelta
 
+from sqlalchemy import func
+
+from extensions import db
 from modules.production.kierownik.services import zamowienia as zam
-from modules.production.models import get_local_now
+from modules.production.models import ProductionProduct, get_local_now
 from modules.production.services import daily_report_service as dzienny
 from modules.production.services import reports_service, station_events_service, worker_stats_service
 from modules.production.services.reports_service import STANOWISKO_LAKIERNI
@@ -77,6 +80,22 @@ def _m3(wartosc):
     return round(float(wartosc or 0), 4)
 
 
+def _wstrzymane():
+    """
+    {pozycji, sztuki, m3} pozycji w statusie `wstrzymane`, stan TERAZ (niezależny od zakresu dat).
+
+    Wstrzymana pozycja nie stoi w kolejce żadnego stanowiska (`STATION_PENDING_STATUS` nie ma dla niej wpisu), więc
+    nie wchodzi do `kolejka_*`; tu wychodzi osobno, żeby łączna niespakowana praca dała się zsumować
+    z kolejkami stanowisk. Wzór m³ jak w kolejce: `volume_m3 * quantity`, pusta objętość to 0.
+    """
+    pozycji, sztuki, m3 = db.session.query(
+        func.count(ProductionProduct.id),
+        func.coalesce(func.sum(ProductionProduct.quantity), 0),
+        func.coalesce(func.sum(func.coalesce(ProductionProduct.volume_m3, 0) * ProductionProduct.quantity), 0),
+    ).filter(ProductionProduct.current_status == 'wstrzymane').one()
+    return {'pozycji': int(pozycji or 0), 'sztuki': int(sztuki or 0), 'm3': _m3(m3)}
+
+
 # ── przerób stanowisk (§8.5) ─────────────────────────────────────────────────────────────────────────────────
 
 def _dni_zapasu():
@@ -104,6 +123,8 @@ def stanowiska(start, end):
       liczy się pięć razy. To miara ruchu na hali, NIE wynik zakresu; wynik (co zeszło z produkcji) to
       `zakonczone`, czyli Pakowanie, gdzie sztuka liczy się raz;
     - trakownia mierzy surowiec przed produkcją, więc stoi osobno i nie wchodzi do `hala`;
+    - `wstrzymane` ({pozycji, sztuki, m3}) to stan TERAZ pozycji w statusie `wstrzymane`: nie stoją w kolejce żadnego
+      stanowiska, więc nie ma ich w `kolejka_*`;
     - `kolejka_szt`, `kolejka_m3` i `dni_zapasu` to stan TERAZ, niezależny od zakresu;
     - `wartosc_netto` liczy się dla XLSX, ale tu nie wychodzi.
     """
@@ -140,6 +161,7 @@ def stanowiska(start, end):
         },
         'zakonczone': {'sztuki': zakonczone['sztuki'], 'm3': _m3(zakonczone['m3'])},
         'trakownia': {'klody': trakownia['klody'], 'm3': _m3(trakownia['m3'])},
+        'wstrzymane': _wstrzymane(),
     }
 
 
