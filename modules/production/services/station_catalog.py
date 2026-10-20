@@ -86,14 +86,27 @@ def station_label(station_code):
     return STATION_LABELS.get(station_code, station_code)
 
 
-def station_choices(include_sawmill=False):
+def station_choices(include_sawmill=False, include_verification=False):
     """
     [(kod, nazwa)] w kolejności procesu — do wszystkich list rozwijanych
     i checkboxów, żeby żadna nie miała własnej, rozjeżdżającej się kopii.
+
+    Flagi są OPT-IN i domyślnie wyłączone, bo wywołań są dwa rodzaje i chcą
+    różnych list. Raporty filtrują po stanowiskach PROCESU (sztuki i m³), więc
+    biorą samo `STATION_ORDER`. Formularz pracownika przypisuje ludzi do miejsc,
+    w których otwierają sesję, więc bierze też Trakownię i Weryfikację
+    (worker_service.station_choices).
+
+    Czego tu nie ma i nie powinno być: Dostawy i Kierownika hali. Oba mają
+    własne znaczniki na pracowniku (`is_driver` z Logistyka → Flota,
+    `is_manager` z Pracowników), a dwa mechanizmy na jedno stanowisko to
+    pomyłka „zaznaczyłem stanowisko, a i tak nie wchodzi".
     """
     wybor = [(kod, STATION_LABELS[kod]) for kod in STATION_ORDER]
     if include_sawmill:
         wybor.append(('sawmill', STATION_LABELS['sawmill']))
+    if include_verification:
+        wybor.append(('verification', STATION_LABELS['verification']))
     return wybor
 
 

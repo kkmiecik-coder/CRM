@@ -1705,6 +1705,49 @@ def test_pracownik_moze_miec_lakiernie_w_allowed_stations(app):
             .format(niezapisywalne))
 
 
+def test_formularz_pracownika_oferuje_weryfikacje(app):
+    """
+    Weryfikacja (telefon biura, logistyka etap 4) to stanowisko, na ktorym
+    pracownik otwiera sesje jak na kazdym innym, ale do 20.10.2026 nie bylo
+    jej w liscie „Stanowiska" w zakladce Pracownicy. Skutek: nie dalo sie
+    nikogo do niej zawezic, wiec administrator zostawial puste zaznaczenie
+    (= „moze pracowac wszedzie") takze wtedy, gdy chcial zawezic.
+
+    Dostawy i Kierownika hali na tej liscie NIE MA swiadomie: pierwsza
+    otwiera znacznik „Kierowca" (Logistyka → Flota), druga checkbox
+    „Kierownik hali" w tym samym formularzu. Dwa mechanizmy na jedno
+    stanowisko to przyszla pomylka „zaznaczylem stanowisko, a i tak nie
+    wchodzi" — stad asercje na ich NIEobecnosc.
+    """
+    with app.app_context():
+        oferowane = [kod for kod, _ in worker_service.station_choices()]
+        assert 'verification' in oferowane
+        assert 'delivery' not in oferowane
+        assert 'manager' not in oferowane
+
+        # Lista i walidacja zapisu to musi byc jedno zrodlo prawdy:
+        # _normalize_stations sprawdza kod wobec VALID_STATION_CODES.
+        pracownik = worker_service.create_worker(
+            'Iwona', 'Kontrola', allowed_stations=['verification'])
+        assert pracownik.allowed_stations == 'verification'
+        assert pracownik.can_work_at('verification') is True
+        assert pracownik.can_work_at('packaging') is False
+
+
+def test_filtry_raportow_zostaja_na_stanowiskach_procesu(app):
+    """
+    Lista stanowisk w raportach to ta sama funkcja katalogu, tylko bez flag:
+    raporty filtruja po stanowiskach PROCESU, gdzie licza sie sztuki i m3.
+    Weryfikacja i Trakownia tam nie naleza, wiec dolozenie Weryfikacji do
+    formularza pracownika nie moze ich wpuscic do raportow.
+    """
+    from modules.production.services import station_catalog
+
+    kody = [kod for kod, _ in station_catalog.station_choices()]
+    assert 'verification' not in kody
+    assert 'sawmill' not in kody
+
+
 def test_zapis_ze_starej_zakladki_pracownikow_laduje_jako_krawedzie(app):
     """
     Kierownik hali ma zakladke „Pracownicy" otwarta od rana, sprzed wdrozenia

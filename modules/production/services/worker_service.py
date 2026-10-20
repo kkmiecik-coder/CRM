@@ -63,13 +63,18 @@ station_label = station_catalog.station_label
 
 def station_choices():
     """
-    [(kod, nazwa)] do formularza pracownika — pełna lista stanowisk produkcyjnych
-    RAZEM z lakiernią i trakownią.
+    [(kod, nazwa)] do formularza pracownika — pełna lista stanowisk, na których
+    pracownik otwiera sesję: siedem stanowisk procesu, Trakownia i Weryfikacja.
 
     Wcześniej lista pomijała 'painting', więc nie dało się nikogo przypisać do
-    stanowiska, po którym raport pozwalał filtrować.
+    stanowiska, po którym raport pozwalał filtrować. Tym samym brakiem była
+    Weryfikacja (dodana 20.10.2026): administrator nie mógł nikogo do niej
+    zawęzić, więc zostawiał puste zaznaczenie, które znaczy „wszędzie".
+
+    Dostawy i Kierownika hali tu nie ma — otwierają je znaczniki `is_driver`
+    i `is_manager`, nie przypisanie do stanowiska.
     """
-    return station_catalog.station_choices(include_sawmill=True)
+    return station_catalog.station_choices(include_sawmill=True, include_verification=True)
 
 
 class WorkerError(Exception):
