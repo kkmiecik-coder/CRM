@@ -353,13 +353,13 @@ Waga = Σ(`volume_m3 × quantity`) niezanulowanych pozycji × `WAGA_KG_NA_M3` (8
 ### 7.2 Deklaracja
 
 - `PUT /api/mobile/orders/<internal_order_number>/packages` z
-  `{"kind": "paczka|paleta", "count": 1..10, "pallet_type": "eur|niestandardowa|null", "length_cm": .., "width_cm": ..}`.
+  `{"kind": "paczka|paleta", "count": 1..40 dla paczki i 1..10 dla palety, "pallet_type": "eur|niestandardowa|null", "length_cm": .., "width_cm": ..}`.
 - Przyjmowana, gdy **wszystkie niezanulowane pozycje są `spakowane`** (inaczej 409 `order_not_packed`). Blokada po
   weryfikacji (409 `order_verified` — najpierw „Cofnij weryfikację”) **przeniesiona do kroku 4.3**: w 4.2 weryfikacji
   jeszcze nie ma.
 - Unieważnia poprzednie paczki, tworzy N nowych, `packages_declared_at`, wpis `paczki` w logu, podbija `updated_at`
   pozycji (ETag), kolejkuje N etykiet na drukarkę `wysylka`. Idempotentna przez `X-Operation-Id`.
-- Błędy (`error` + `message`): `invalid_packages` 422 — zły rodzaj, liczba poza 1..10, brak albo wymiar palety
+- Błędy (`error` + `message`): `invalid_packages` 422 — zły rodzaj, liczba poza 1..40 (paczka) albo 1..10 (paleta), brak albo wymiar palety
   niestandardowej poza 20–400 cm, zły typ palety; pola bez znaczenia dla rodzaju (wymiar przy EUR i przy paczce, typ
   palety przy paczce) są **pomijane, nie odrzucane** (422 z kolejki offline to deklaracja utracona bez śladu; EUR ma
   zawsze 120×80). Liczby (`count`, wymiary) przyjmują też całkowity float (`2.0`); `1.5`, tekst i wartości logiczne to

@@ -25,7 +25,9 @@ logger = get_structured_logger('production.logistics.paczki')
 # Stanowiska, które deklarują paczki i drukują ich etykiety (spec 6.1) — niezależnie od
 # LABEL_PRINTER_ALLOWED_STATIONS (etykiety produktów). 'verification' dochodzi w kroku 4.3.
 STANOWISKA_PACZEK = ('packaging', 'verification')
-MAKS_PACZEK = 10
+# Najwięcej sztuk w jednej deklaracji, osobno dla rodzaju (decyzja Konrada 20.10.2026: paczek do 40, palet dalej 10).
+MAKS_PACZEK = 40
+MAKS_PALET = 10
 WYMIAR_EUR = (120, 80)
 WYMIAR_MIN_CM, WYMIAR_MAX_CM = 20, 400
 # Klucz wiersza prod_config, który serializuje deklaracje paczek — patrz zablokuj_deklaracje().
@@ -185,8 +187,9 @@ def waliduj_deklaracje(dane):
     if kind not in ProductionPackage.RODZAJE:
         raise blad(u'Rodzaj musi być „paczka” albo „paleta”.')
     count = _liczba(dane.get('count'))
-    if count is None or not 1 <= count <= MAKS_PACZEK:
-        raise blad(u'Liczba paczek od 1 do %d.' % MAKS_PACZEK)
+    maks, nazwa = (MAKS_PALET, u'palet') if kind == 'paleta' else (MAKS_PACZEK, u'paczek')
+    if count is None or not 1 <= count <= maks:
+        raise blad(u'Liczba %s od 1 do %d.' % (nazwa, maks))
     if kind == 'paczka':
         return Deklaracja('paczka', count)
     typ = dane.get('pallet_type')

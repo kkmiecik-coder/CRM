@@ -1563,7 +1563,7 @@ def order_packages_declare(numer):
     """
     PUT /api/mobile/orders/<internal_order_number>/packages — deklaracja paczek (spec 7.2).
 
-    Body: {"kind": "paczka"|"paleta", "count": 1..10, "pallet_type": "eur"|"niestandardowa"|null,
+    Body: {"kind": "paczka"|"paleta", "count": 1..40 dla paczki, 1..10 dla palety, "pallet_type": "eur"|"niestandardowa"|null,
            "length_cm": int|null, "width_cm": int|null}
 
     Appka wysyła ją po „ZAKOŃCZ”, który domyka zamówienie — po zakończeniach pozycji, tą samą
