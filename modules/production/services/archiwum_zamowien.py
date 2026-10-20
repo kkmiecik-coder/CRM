@@ -53,8 +53,8 @@ def data_zakonczenia_expr(wdrozenie=None):
        (`NOW()` przy wdrożeniu), więc ich `logistics_closed_at` to data wdrożenia, nie spakowania.
        Danych nie przepisujemy migracją (spec 10, rozstrzygnięcie 2),
      - niezamknięte, w całości anulowane → MAX(updated_at) pozycji (ostatnia zmiana, czyli
-       w praktyce anulowanie); cron logistyki zamyka je przy najbliższym przebiegu i od tej chwili
-       obowiązuje `logistics_closed_at`.
+       w praktyce anulowanie; zamówienie bez pozycji: MAX(updated_at) zamówienia); cron logistyki
+       zamyka je przy najbliższym przebiegu i od tej chwili obowiązuje `logistics_closed_at`.
     Bez znacznika (baza bez migracji 4.3) każde zamknięcie liczy się jako bieżące.
     """
     closed_at = func.max(ProductionOrder.logistics_closed_at)
@@ -66,7 +66,9 @@ def data_zakonczenia_expr(wdrozenie=None):
         branches.append((and_(all_closed, closed_at <= wdrozenie),
                          func.max(ProductionItem.packaging_completed_at)))
     branches.append((all_closed, closed_at))
-    return case(*branches, else_=func.max(ProductionItem.updated_at))
+    # Zamówienie bez pozycji nie ma `MAX(updated_at)` pozycji — wtedy ostatnia zmiana samego zamówienia.
+    return case(*branches, else_=func.coalesce(func.max(ProductionItem.updated_at),
+                                               func.max(ProductionOrder.updated_at)))
 
 
 def _any_product_matches(condition):
@@ -90,6 +92,12 @@ def zapytanie_archiwum(completed_from_dt=None, completed_to_dt=None, filters=Non
     wood_classes / thicknesses — każdy filtr to osobne HAVING, więc filtry łączą
     się przez AND, a wartości w obrębie jednego filtra przez OR (IN). Dokładnie
     tak, jak działa dziś `orderPassesFilters()` w archive-module.js.
+
+    Zamówienie BEZ ŻADNEJ pozycji liczy się jak w całości anulowane (spec tabletu kierownika §5.1),
+    dlatego pozycje łączymy złączeniem zewnętrznym: wewnętrzne nigdy by go nie zwróciło i wisiałoby
+    w widoku „bieżące” na zawsze. `warunek_archiwum()` działa na nim bez zmian — złączenie zewnętrzne
+    daje jeden wiersz z NULL-ami, więc suma „pozycji nieanulowanych” to 0. W zakładce Produkty takie
+    zamówienie nie ma pozycji do narysowania, ale zalicza się do liczników i stronicowania archiwum.
     """
     completed_expr = data_zakonczenia_expr(wdrozenie)
     q = db.session.query(
@@ -100,7 +108,7 @@ def zapytanie_archiwum(completed_from_dt=None, completed_to_dt=None, filters=Non
         func.sum(ProductionItem.quantity).label('quantity'),
         func.sum(ProductionItem.volume_m3 * ProductionItem.quantity).label('volume'),
         func.sum(ProductionItem.total_value_net).label('value'),
-    ).select_from(ProductionOrder).join(
+    ).select_from(ProductionOrder).outerjoin(
         ProductionItem, ProductionItem.order_id == ProductionOrder.id
     ).outerjoin(
         ProductionConfiguration,

@@ -67,6 +67,26 @@ def test_lista_active_bez_archiwum(tablet, client):
     assert sorted(_numery(_lista(client, tablet, view='archive'))) == ['26/00002', '26/00003']
 
 
+def test_zamowienie_bez_pozycji_jest_w_archiwum_jak_anulowane(tablet, client):
+    """Spec §5.1: zamówienie bez żadnej pozycji to w całości anulowane — archiwum, nie `active`."""
+    puste = zamowienie(statusy=(), numer_wewnetrzny='26/00020', bl_id=900020)
+    zamowienie(statusy=('czeka_na_wyciecie',), numer_wewnetrzny='26/00021', bl_id=900021)
+
+    assert _numery(_lista(client, tablet)) == ['26/00021']
+    archiwum = _lista(client, tablet, view='archive')
+    assert _numery(archiwum) == ['26/00020']
+    z = archiwum['zamowienia'][0]
+    assert z['order_id'] == puste.id and z['pozycji'] == 0
+    assert z['zakonczono'] is not None   # ostatnia zmiana samego zamówienia
+    # `all` zwraca je raz, z datą zakończenia.
+    wszystkie = {x['numer']: x for x in _lista(client, tablet, view='all')['zamowienia']}
+    assert wszystkie['26/00020']['zakonczono'] is not None
+    assert wszystkie['26/00021']['zakonczono'] is None
+    # Archiwalne ma też kartę z datą zakończenia.
+    karta = client.get(f'{URL}/{puste.id}', headers=naglowki(*tablet))
+    assert karta.status_code == 200 and karta.get_json()['zamowienie']['zakonczono'] is not None
+
+
 def test_lista_all_ma_oba_od_najnowszych(tablet, client):
     w_produkcji, anulowane, zamkniete, otwarte = _zbior_mieszany()
     odp = _lista(client, tablet, view='all')

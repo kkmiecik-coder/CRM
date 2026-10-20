@@ -102,3 +102,21 @@ def test_data_zakonczenia_expr_bez_znacznika(app, client):
     with app.app_context():
         wiersze = archiwum_zamowien.zapytanie_archiwum(wdrozenie=None).all()
         assert [r.completed_at for r in wiersze] == [baza]
+
+
+def test_zamowienie_bez_pozycji_jest_w_archiwum_web_i_serwis(app, client):
+    """Bez pozycji = w całości anulowane: ta sama definicja w zakładce Produkty i w serwisie."""
+    _zbior_mieszany(app)
+    _zamowienie(app, '26/00007', [], bl_id=555007, closed_at=None)
+
+    with app.app_context():
+        wiersze = archiwum_zamowien.zapytanie_archiwum().all()
+        assert {r.ion for r in wiersze} == {'26/00001', '26/00002', '26/00006', '26/00007'}
+        puste = next(r for r in wiersze if r.ion == '26/00007')
+        assert puste.products_count == 0 and puste.completed_at is not None
+        assert archiwum_zamowien.statystyki_archiwum(wiersze)['archive']['orders_count'] == 4
+
+    # Zakładka Produkty: zamówienie zalicza się do archiwum (licznik), ale nie ma pozycji do narysowania.
+    dane = _archiwum(client)
+    assert dane['stats']['archive']['orders_count'] == 4
+    assert set(_numery(dane)) == {'26/00001', '26/00002', '26/00006'}
