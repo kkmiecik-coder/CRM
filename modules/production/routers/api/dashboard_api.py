@@ -1118,11 +1118,11 @@ def dashboard_tab_content():
         }
 
         # "In production now" — liczone per niespakowana sztuka.
-        # Wykluczamy spakowane i anulowane.
+        # Wykluczamy spakowane, anulowane i wstrzymane (wstrzymana nie stoi w kolejce żadnego stanowiska).
         in_production_items = ProductionItem.query.options(
             joinedload(ProductionItem.order),
         ).filter(
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)),
+            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane', 'wstrzymane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 
@@ -1295,9 +1295,9 @@ def dashboard_data():
         alerts_data = sorted(orders_map.values(), key=lambda x: x.get('days_remaining', 0))
 
         # "In production now" — liczone per niespakowana sztuka.
-        # Wykluczamy spakowane i anulowane.
+        # Wykluczamy spakowane, anulowane i wstrzymane (wstrzymana nie stoi w kolejce żadnego stanowiska).
         in_production_items_dd = ProductionItem.query.filter(
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)),
+            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane', 'wstrzymane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
 

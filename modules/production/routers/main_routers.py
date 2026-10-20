@@ -143,12 +143,12 @@ def dashboard():
         }
 
         # "In production now" — liczone per niespakowana sztuka.
-        # Wykluczamy pozycje już spakowane i anulowane; dla pozostałych liczymy
+        # Wykluczamy pozycje już spakowane, anulowane i wstrzymane; dla pozostałych liczymy
         # remaining = quantity - quantity_done_packaging.
         in_prod_items = ProductionItem.query.options(
             joinedload(ProductionItem.order),
         ).filter(
-            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane',)),
+            ProductionItem.current_status.notin_(sposoby.STATUSY_PO_SPAKOWANIU + ('anulowane', 'wstrzymane')),
             db.func.coalesce(ProductionItem.quantity_done_packaging, 0) < ProductionItem.quantity
         ).all()
         in_prod_order_ids = set()

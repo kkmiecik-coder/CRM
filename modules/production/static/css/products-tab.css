@@ -101,6 +101,24 @@
     color: var(--il-status-danger);
 }
 
+/* Wartość z dopiskiem pod spodem (np. „wstrzymane 0,79 m³” pod Objętością). */
+.il-stat-value-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.il-stat-note {
+    font-size: 11px;
+    color: var(--il-text-secondary);
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+.il-stat-note[hidden] {
+    display: none;
+}
+
 /* ============================================================================
    2. FILTERS BAR
    ============================================================================ */
