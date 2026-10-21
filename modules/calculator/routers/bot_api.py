@@ -52,7 +52,7 @@ def bot_options():
     from modules.calculator.services.pricing_service import (
         load_pricing_data, VARIANT_MAPPING, _pricing_limits,
         AUTO_MULTIPLIER_PROG_NETTO, AUTO_MULTIPLIER_PONIZEJ_PROGU,
-        AUTO_MULTIPLIER_OD_PROGU,
+        AUTO_MULTIPLIER_OD_PROGU, pasma_dostepnosci,
     )
     data = load_pricing_data()
 
@@ -73,6 +73,9 @@ def bot_options():
             'width_max': max(e['width_max'] for e in entries),
             'thickness_min': min(e['thickness_min'] for e in entries),
             'thickness_max': max(e['thickness_max'] for e in entries),
+            # Obwiednia wyżej nie widzi dziur — dostępność grubości czytaj z pasm
+            # (pusta lista = wariant wyłączony w cenniku).
+            'thickness_bands': pasma_dostepnosci(entries),
         })
 
     finishing = [

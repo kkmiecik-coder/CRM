@@ -655,8 +655,9 @@ def _porownanie_msg(alt_poz, prod, totals):
     return "\n".join(linie)
 
 
-_ALT_NIEDOSTEPNY = ("Ten wariant nie jest dostępny — pracujemy w dębie (klasa A/B lub B/B), jesionie "
-                    "(A/B) i buku (A/B), w technologii litej lub mikrowczep. Proszę wybrać z tych opcji.")
+_ALT_NIEDOSTEPNY = ("Ten wariant nie jest dostępny dla podanych parametrów (nie każdy gatunek ma każdą "
+                    "technologię i grubość). Pracujemy w dębie (klasa A/B lub B/B), jesionie (A/B) "
+                    "i buku (A/B). Proszę wskazać inną opcję, a podpowiem, co jest dostępne.")
 
 
 def _czy_porownanie(conv_id, out, dane, zmienione=False):
@@ -2356,6 +2357,9 @@ def _run_quote_turn_inner(conv_id, inbox_id, message_id, content, attachments=No
             system += ("\n\nDOSTĘPNE OBRAZY (możesz dołączyć maks. jeden przez pole send_image, "
                        "tylko gdy realnie pomaga):\n" + wl)
     opts = crm_calc.get_options()
+    dostepnosc = crm_calc.opis_dostepnosci(opts)
+    if dostepnosc:
+        system += "\n\n" + dostepnosc
     fin = opts.get("finishing_options") or []
     if fin:
         lista = "\n".join("- id=%s — %s" % (o.get("id"), o.get("full_path")) for o in fin)

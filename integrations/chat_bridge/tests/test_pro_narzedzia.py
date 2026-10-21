@@ -142,6 +142,9 @@ class TestPobierzOpcjePrzycina:
             "vat": 1.23,
         })
         wynik = _wolaj(n.pobierz_opcje)
+        # `dostepnosc` to opis z cennika (crm_calc.opis_dostepnosci) — jego treść pilnuje
+        # test_crm_calc_mapping; tu tylko, że bot go dostaje razem z limitami.
+        assert "DOSTĘPNOŚĆ WARIANTÓW" in wynik.pop("dostepnosc")
         assert wynik == {
             "finishing_options": [{"id": 7, "full_path": "Olejowane / Dąb naturalny"}],
             "global_limits": {"length_min": 40, "length_max": 500,
@@ -171,7 +174,8 @@ class TestPobierzOpcjePrzycina:
         # — pobierz_opcje ma wtedy zwrocic puste struktury, nie rzucic wyjatkiem.
         monkeypatch.setattr(n.crm_calc, "get_options", lambda: {})
         wynik = _wolaj(n.pobierz_opcje)
-        assert wynik == {"finishing_options": [], "global_limits": None, "variant_limits": []}
+        assert wynik == {"finishing_options": [], "global_limits": None, "dostepnosc": "",
+                         "variant_limits": []}
 
 
 class TestSchematZapiszPozycje:

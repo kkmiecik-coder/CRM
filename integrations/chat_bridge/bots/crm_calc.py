@@ -59,6 +59,63 @@ def get_options(force=False):
     return data
 
 
+def _cm(x):
+    """2.5 -> '2,5', 4.0 -> '4' (polski zapis liczb w tekście do klienta)."""
+    return ("%g" % x).replace(".", ",")
+
+
+def _opis_pasma(p):
+    """Jedno pasmo grubości z /options -> fraza po polsku (grubość liczy się po zaokrągleniu
+    w górę do pełnego cm, do 2 cm jak 2 cm — stąd pasma opisujemy pełnymi centymetrami;
+    pasmo „exact” to grubość tylko dokładnie taka, np. 2,5)."""
+    if p.get("exact"):
+        return "tylko %s cm" % _cm(p["thickness_min"])
+    lo = max(2, int(-(-p["thickness_min"] // 1)))   # ceil bez importu math
+    hi = int(p["thickness_max"] // 1)
+    if lo > hi:
+        return None
+    if lo == hi:
+        return "do 2 cm" if lo == 2 else "%d cm" % lo
+    return "od %d do %d cm" % (lo, hi)
+
+
+def opis_dostepnosci(options):
+    """Tekst dla LLM: które warianty i jakie grubości/długości są dziś w cenniku.
+
+    Źródło prawdy to tabela `prices` (przez /api/bot/options -> thickness_bands), więc tekst
+    nie starzeje się przy zmianach cennika. Wariant z pustymi pasmami albo bez wpisu w ogóle
+    jest niedostępny. Starszy CRM bez `thickness_bands` -> pomijamy wariant (nie twierdzimy
+    niczego, czego nie wiemy). Pusty options (awaria CRM) -> "" (bot zostaje bez tej sekcji)."""
+    warianty = {v.get("variant_code"): v for v in (options.get("variants") or [])}
+    if not warianty:
+        return ""
+    linie = []
+    for kod, cfg in VARIANT_CODES.items():
+        nazwa = "%s %s %s" % (cfg["species"].lower(), cfg["technology"].lower(), cfg["wood_class"])
+        v = warianty.get(kod)
+        if v is None:
+            linie.append("- %s: NIEDOSTĘPNY" % nazwa)
+            continue
+        if "thickness_bands" not in v:
+            continue
+        czesci = []
+        for p in v["thickness_bands"]:
+            opis = _opis_pasma(p)
+            if opis:
+                czesci.append("%s (długość do %s cm)" % (opis, _cm(p["length_max"])))
+        if not czesci:
+            linie.append("- %s: NIEDOSTĘPNY" % nazwa)
+            continue
+        szer = max(p["width_max"] for p in v["thickness_bands"])
+        linie.append("- %s: grubość %s; szerokość do %s cm" % (nazwa, "; ".join(czesci), _cm(szer)))
+    if not linie:
+        return ""
+    return ("DOSTĘPNOŚĆ WARIANTÓW (aktualnie z cennika; grubość zaokrąglamy w górę do pełnego cm, "
+            "do 2 cm liczymy jak 2 cm). Wariant albo grubość spoza listy jest NIEDOSTĘPNA — powiedz "
+            "to wprost i wskaż najbliższą dostępną opcję; pytając o grubość podawaj dostępne wartości:\n"
+            + "\n".join(linie))
+
+
 def _ascii_low(s):
     return unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode("ascii").lower()
 

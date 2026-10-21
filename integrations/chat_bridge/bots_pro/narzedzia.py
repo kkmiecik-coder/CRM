@@ -72,7 +72,11 @@ def pobierz_opcje() -> dict:
     """Zwraca listę wykończeń z identyfikatorami (finishing_options: id +
     full_path), globalne limity wymiarowe (global_limits) i limity PER
     WARIANT (variant_limits) — technologia zmienia maksymalną długość (lita
-    450 cm, mikrowczep 500 cm), więc sam global_limits by to zamazał. Wołaj
+    450 cm, mikrowczep 500 cm), więc sam global_limits by to zamazał.
+    variant_limits to OBWIEDNIA (min z minów, max z maxów) i nie widzi dziur
+    (buk lity: grubości do 2 cm, 2,5 i 2,8, a obwiednia mówi 0-2,8), dlatego
+    dostępność wariantów i grubości czytaj z `dostepnosc` — gotowy opis z cennika
+    (wariant poza listą = niedostępny); ostatnie słowo ma policz_wycene. Wołaj
     raz na początku rozmowy o wycenę: żeby poznać finishing_option_id
     pasujące do wyboru klienta przy olejowaniu/lakierowaniu, i żeby limity
     wymiarowe w Twoich odpowiedziach brały się z cennika, nie z pamięci.
@@ -92,6 +96,7 @@ def pobierz_opcje() -> dict:
             for o in (dane.get("finishing_options") or [])
         ],
         "global_limits": dane.get("global_limits"),
+        "dostepnosc": crm_calc.opis_dostepnosci(dane),
         "variant_limits": [
             {
                 "variant_code": w.get("variant_code"),

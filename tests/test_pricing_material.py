@@ -168,3 +168,18 @@ def test_doplata_za_ksztalt_nietypowy_wylaczona_gdy_zero():
     v = next(x for x in calculate_material_variants(product, 1.0, _data())
              if x['variant_code'] == 'dab-lity-ab')
     assert abs(v['unit_netto'] - 123.0) < 0.001
+
+
+def test_pasma_dostepnosci_pomija_wylaczone_i_oznacza_grubosc_na_sztywno():
+    from modules.calculator.services.pricing_service import pasma_dostepnosci
+    wiersze = [
+        _buk_lity(0.0, 2.0), _buk_lity(2.5, 2.5), _buk_lity(2.8, 2.8),
+        _buk_lity(3.01, 3.00),                                  # wyłączony: odwrócony zakres
+        {**_buk_lity(0.0, 12.0), 'length_max': 0.01},           # wyłączony: długość 0,01
+        {**_buk_lity(0.0, 0.01)},                               # wyłączony: grubość 0-0,01
+    ]
+    pasma = pasma_dostepnosci(wiersze)
+    assert [(p['thickness_min'], p['thickness_max'], p['exact']) for p in pasma] == [
+        (0.0, 2.0, False), (2.5, 2.5, True), (2.8, 2.8, True)]
+    assert pasma[0]['length_max'] == 240 and pasma[0]['width_max'] == 120
+    assert pasma_dostepnosci([_buk_lity(3.01, 3.0)]) == []   # cały wariant wyłączony

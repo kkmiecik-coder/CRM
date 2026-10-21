@@ -799,6 +799,28 @@ def _pricing_limits(data):
     }
 
 
+def pasma_dostepnosci(entries):
+    """Pasma grubości wariantu z faktyczną dostępnością (dla bota: /api/bot/options).
+
+    Obwiednia min/max kłamie przy dziurach (buk lity: do 2 cm, 2,5 i 2,8 — obwiednia 0-2,8),
+    więc bot dostaje listę pasm. Wiersze wyłączone przez zawężenie wymiaru (odwrócony zakres
+    grubości albo długość/grubość max <= 0,01) pomijamy: wariant bez pasm = niedostępny.
+    Wiersz z thickness_min == thickness_max to grubość „na sztywno" (`exact`).
+    """
+    pasma = {}
+    for e in entries:
+        t_min, t_max = e['thickness_min'], e['thickness_max']
+        if t_min > t_max or t_max <= 0.01 or e['length_max'] <= 0.01:
+            continue
+        p = pasma.setdefault((t_min, t_max), {
+            'thickness_min': t_min, 'thickness_max': t_max, 'exact': t_min == t_max,
+            'length_max': 0.0, 'width_max': 0.0,
+        })
+        p['length_max'] = max(p['length_max'], e['length_max'])
+        p['width_max'] = max(p['width_max'], e['width_max'])
+    return sorted(pasma.values(), key=lambda p: (p['thickness_min'], p['thickness_max']))
+
+
 def resolve_multiplier(client_type, explicit_multiplier, data):
     """Partner z fixed mnożnikiem podaje explicit_multiplier; reszta grupę cenową."""
     if explicit_multiplier is not None:

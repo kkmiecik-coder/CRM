@@ -68,3 +68,38 @@ def test_valid_finishing_id_zly_wpis_nie_rzuca():
     opts = {"finishing_options": [{"id": "abc"}, {"id": None}, {"id": 7, "full_path": "X"}]}
     assert crm.valid_finishing_id(7, opts) is True    # dobry wpis znaleziony mimo zepsutych
     assert crm.valid_finishing_id(9, opts) is False   # brak dopasowania, bez wyjatku
+
+
+def _wariant(kod, pasma):
+    return {"variant_code": kod, "thickness_bands": pasma}
+
+
+def test_opis_dostepnosci_z_pasm_cennika():
+    opis = crm.opis_dostepnosci({"variants": [
+        _wariant("buk-lity-ab", [
+            {"thickness_min": 0, "thickness_max": 2, "exact": False, "length_max": 240, "width_max": 120},
+            {"thickness_min": 2.5, "thickness_max": 2.5, "exact": True, "length_max": 240, "width_max": 120},
+            {"thickness_min": 2.8, "thickness_max": 2.8, "exact": True, "length_max": 240, "width_max": 120}]),
+        _wariant("dab-lity-ab", [
+            {"thickness_min": 3.01, "thickness_max": 12, "exact": False, "length_max": 265, "width_max": 120}]),
+        _wariant("jes-micro-ab", [
+            {"thickness_min": 3.01, "thickness_max": 4, "exact": False, "length_max": 500, "width_max": 120}]),
+        _wariant("dab-micro-ab", [
+            {"thickness_min": 1.8, "thickness_max": 12, "exact": False, "length_max": 500, "width_max": 120}]),
+        _wariant("buk-micro-ab", []),                          # wyłączony w cenniku
+    ]})
+    assert "- buk lity A/B: grubość do 2 cm (długość do 240 cm); tylko 2,5 cm (długość do 240 cm); " \
+           "tylko 2,8 cm (długość do 240 cm); szerokość do 120 cm" in opis
+    assert "- dąb lity A/B: grubość od 4 do 12 cm (długość do 265 cm)" in opis
+    assert "- jesion mikrowczep A/B: grubość 4 cm (długość do 500 cm)" in opis
+    assert "- dąb mikrowczep A/B: grubość od 2 do 12 cm (długość do 500 cm)" in opis
+    assert "- buk mikrowczep A/B: NIEDOSTĘPNY" in opis        # puste pasma
+    assert "- jesion lity A/B: NIEDOSTĘPNY" in opis           # brak wariantu w /options
+    assert "dąb lity B/B: NIEDOSTĘPNY" in opis
+
+
+def test_opis_dostepnosci_pusty_gdy_awaria_crm_i_pomija_stary_crm_bez_pasm():
+    assert crm.opis_dostepnosci({}) == ""
+    # starszy CRM bez thickness_bands: nie twierdzimy niczego o wariancie, którego nie znamy
+    opis = crm.opis_dostepnosci({"variants": [{"variant_code": "buk-lity-ab"}]})
+    assert "buk lity" not in opis
