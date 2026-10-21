@@ -113,8 +113,8 @@ def test_rodzaje_i_wymiary(app, client, sygnaly, dane, zapisane, na_etykiecie):
 
 @pytest.mark.parametrize('dane', [
     None, [], {}, {'kind': 'skrzynia', 'count': 1}, {'kind': 'paczka'},
-    {'kind': 'paczka', 'count': 0}, {'kind': 'paczka', 'count': 41},
-    {'kind': 'paleta', 'count': 11, 'pallet_type': 'eur'}, {'kind': 'paleta', 'count': 0, 'pallet_type': 'eur'},
+    {'kind': 'paczka', 'count': 0}, {'kind': 'paczka', 'count': 100},
+    {'kind': 'paleta', 'count': 100, 'pallet_type': 'eur'}, {'kind': 'paleta', 'count': 0, 'pallet_type': 'eur'},
     {'kind': 'paczka', 'count': True}, {'kind': 'paczka', 'count': '2'}, {'kind': 'paczka', 'count': 1.5},
     {'kind': 'paleta', 'count': 1}, {'kind': 'paleta', 'count': 1, 'pallet_type': 'duza'},
     {'kind': 'paleta', 'count': 1, 'pallet_type': 'niestandardowa'},
@@ -131,8 +131,8 @@ def test_zle_dane_422(app, client, sygnaly, dane):
 
 
 @pytest.mark.parametrize('dane, komunikat', [
-    ({'kind': 'paczka', 'count': 41}, 'Liczba paczek od 1 do 40.'),
-    ({'kind': 'paleta', 'count': 11, 'pallet_type': 'eur'}, 'Liczba palet od 1 do 10.'),
+    ({'kind': 'paczka', 'count': 100}, 'Liczba paczek od 1 do 99.'),
+    ({'kind': 'paleta', 'count': 100, 'pallet_type': 'eur'}, 'Liczba palet od 1 do 99.'),
 ])
 def test_limit_w_komunikacie_zalezy_od_rodzaju(app, client, sygnaly, dane, komunikat):
     r = _put(client, _spakowane(), _urzadzenie(), dane)
@@ -140,11 +140,11 @@ def test_limit_w_komunikacie_zalezy_od_rodzaju(app, client, sygnaly, dane, komun
 
 
 @pytest.mark.parametrize('dane, ile', [
-    ({'kind': 'paczka', 'count': 40}, 40),
-    ({'kind': 'paleta', 'count': 10, 'pallet_type': 'eur'}, 10),
+    ({'kind': 'paczka', 'count': 99}, 99),
+    ({'kind': 'paleta', 'count': 99, 'pallet_type': 'eur'}, 99),
 ])
 def test_deklaracja_na_granicy_limitu_tworzy_wszystkie_paczki_i_etykiety(app, client, sygnaly, dane, ile):
-    """40 paczek / 10 palet: kody i etykiety dla każdej, numeracja „n / ile” do końca, bez przycinania."""
+    """99 paczek / 99 palet (bezpiecznik techniczny): kody i etykiety dla każdej, numeracja „n / ile” do końca, bez przycinania."""
     order = _spakowane()
     r = _put(client, order, _urzadzenie(), dane)
     assert r.status_code == 200, r.get_data()[:300]

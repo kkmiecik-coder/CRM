@@ -25,9 +25,11 @@ logger = get_structured_logger('production.logistics.paczki')
 # Stanowiska, które deklarują paczki i drukują ich etykiety (spec 6.1) — niezależnie od
 # LABEL_PRINTER_ALLOWED_STATIONS (etykiety produktów). 'verification' dochodzi w kroku 4.3.
 STANOWISKA_PACZEK = ('packaging', 'verification')
-# Najwięcej sztuk w jednej deklaracji, osobno dla rodzaju (decyzja Konrada 20.10.2026: paczek do 40, palet dalej 10).
-MAKS_PACZEK = 40
-MAKS_PALET = 10
+# Techniczny bezpiecznik liczby sztuk w deklaracji (paczek i palet jednakowo; Konrad 21.10.2026: bez limitu
+# biznesowego). Wynika z etykiety, nie z biznesu: numeracja „n / ile” w czarnym kaflu (328 punktów, font 84) mieści
+# dwie cyfry po obu stronach („99 / 99” ma tyle znaków co dawne „10 / 10”). Trzy cyfry wymagają zmiany układu
+# etykiety i próbnego wydruku na drukarce wysyłki — dopiero wtedy podnosić.
+MAKS_SZTUK = 99
 WYMIAR_EUR = (120, 80)
 WYMIAR_MIN_CM, WYMIAR_MAX_CM = 20, 400
 # Klucz wiersza prod_config, który serializuje deklaracje paczek — patrz zablokuj_deklaracje().
@@ -187,9 +189,8 @@ def waliduj_deklaracje(dane):
     if kind not in ProductionPackage.RODZAJE:
         raise blad(u'Rodzaj musi być „paczka” albo „paleta”.')
     count = _liczba(dane.get('count'))
-    maks, nazwa = (MAKS_PALET, u'palet') if kind == 'paleta' else (MAKS_PACZEK, u'paczek')
-    if count is None or not 1 <= count <= maks:
-        raise blad(u'Liczba %s od 1 do %d.' % (nazwa, maks))
+    if count is None or not 1 <= count <= MAKS_SZTUK:
+        raise blad(u'Liczba %s od 1 do %d.' % (u'palet' if kind == 'paleta' else u'paczek', MAKS_SZTUK))
     if kind == 'paczka':
         return Deklaracja('paczka', count)
     typ = dane.get('pallet_type')
