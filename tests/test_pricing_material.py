@@ -79,6 +79,35 @@ def test_material_grubosc_ponizej_2cm_liczona_jako_2cm():
     assert v['volume_m3'] == 0.01  # 1.0*0.5*(2/100), NIE 0.005 (co dałoby ceil(0.8)=1)
 
 
+def _buk_lity(t_min, t_max):
+    return {'species': 'Buk', 'technology': 'Lity', 'wood_class': 'A/B',
+            'thickness_min': t_min, 'thickness_max': t_max, 'length_min': 0,
+            'length_max': 240, 'width_min': 10, 'width_max': 120, 'price_per_m3': 9000.0}
+
+
+def test_grubosc_na_sztywno_pasuje_tylko_do_dokladnej_wartosci():
+    # buk lity: pasmo do 2 cm + wiersze „na sztywno" 2,5 i 2,8 (min == max)
+    data = PricingData(price_entries=[
+        _buk_lity(0.0, 2.0), _buk_lity(2.5, 2.5), _buk_lity(2.8, 2.8)])
+
+    def dostepny(grubosc):
+        product = {'length': 100, 'width': 50, 'thickness': grubosc, 'quantity': 1,
+                   'shape': 'rectangular', 'holes_count': 0}
+        v = next(x for x in calculate_material_variants(product, 1.0, data)
+                 if x['variant_code'] == 'buk-lity-ab')
+        return v
+
+    for ok in (0.8, 1.9, 2, 2.5, 2.8, '2.80'):
+        assert dostepny(ok)['available'] is True, ok
+    for brak in (2.1, 2.4, 2.6, 2.7, 2.9, 3, 3.5, 4):
+        assert dostepny(brak)['available'] is False, brak
+
+    # cena z objętości po zaokrągleniu w górę (2,5 i 2,8 -> 3 cm), jak dla każdej grubości
+    assert dostepny(2.5)['volume_m3'] == 0.015
+    assert dostepny(2.8)['volume_m3'] == 0.015
+    assert dostepny(1.9)['volume_m3'] == 0.01
+
+
 def test_material_doplaty_po_mnozniku():
     # dopłata za okrągły i wycięcia dodawane PO mnożniku, per sztuka (JS 546-556)
     product = {'length': 100, 'width': 50, 'thickness': 3, 'quantity': 1,

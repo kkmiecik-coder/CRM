@@ -400,6 +400,24 @@ def invalidate_pricing_cache():
         _PRICING_CACHE['checked_ts'] = 0.0
 
 
+TOLERANCJA_GRUBOSCI_NA_SZTYWNO = 0.005  # kolumna to DECIMAL(4,2)
+
+
+def grubosc_pasuje_do_wiersza(entry, thickness, rounded_thickness):
+    """Czy grubość mieści się w paśmie wiersza cennika.
+
+    Zwykły wiersz (min < max) porównujemy z grubością zaokrągloną w górę do pełnego cm.
+    Wiersz z thickness_min == thickness_max to grubość „na sztywno" (np. 2,5 albo 2,8 cm):
+    pasuje wyłącznie do dokładnie tej wpisanej wartości, bo po ceil() 2,5 i 2,8 byłyby
+    nie do odróżnienia od 3 cm. Cena i tak idzie z objętości po zaokrągleniu (jak wszędzie).
+    Ten sam warunek siedzi w public_calculator.js — zmieniaj oba naraz.
+    """
+    t_min, t_max = entry['thickness_min'], entry['thickness_max']
+    if t_min == t_max:
+        return abs(thickness - t_min) <= TOLERANCJA_GRUBOSCI_NA_SZTYWNO
+    return t_min <= rounded_thickness <= t_max
+
+
 def find_price_entry(data, species, technology, wood_class, thickness, length, width):
     """Odpowiednik JS getPrice (calculator-core.js:286) — ceil grubości, zakresy z cennika."""
     rounded_thickness = round_thickness_cm(thickness)
@@ -407,7 +425,7 @@ def find_price_entry(data, species, technology, wood_class, thickness, length, w
         if (entry['species'] == species
                 and entry['technology'] == technology
                 and entry['wood_class'] == wood_class
-                and entry['thickness_min'] <= rounded_thickness <= entry['thickness_max']
+                and grubosc_pasuje_do_wiersza(entry, thickness, rounded_thickness)
                 and entry['length_min'] <= length <= entry['length_max']
                 and entry['width_min'] <= width <= entry['width_max']):
             return entry

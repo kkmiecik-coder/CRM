@@ -145,6 +145,16 @@ document.addEventListener("DOMContentLoaded", () => {
         return Math.max(MIN_THICKNESS_CM, Math.ceil(num));
     }
 
+    // Wiersz cennika z thickness_min == thickness_max to grubość „na sztywno" (np. 2,5 albo
+    // 2,8 cm): pasuje tylko do dokładnie tej wartości. Parytet z grubosc_pasuje_do_wiersza
+    // w pricing_service.py — zmieniaj oba naraz.
+    function thicknessMatches(p, t, tRounded) {
+        if (p.thickness_min === p.thickness_max) {
+            return Math.abs(t - p.thickness_min) <= 0.005;
+        }
+        return tRounded >= p.thickness_min && tRounded <= p.thickness_max;
+    }
+
     function calculateSurfaceArea(l, w, t, q) {
         const l_m = l / 100;
         const w_m = w / 100;
@@ -252,8 +262,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 p.species === v.species &&
                 p.technology === v.technology &&
                 p.wood_class === v.wood_class &&
-                tRounded >= p.thickness_min &&
-                tRounded <= p.thickness_max &&
+                thicknessMatches(p, t, tRounded) &&
                 lRounded >= p.length_min &&
                 lRounded <= p.length_max &&
                 w >= p.width_min &&
