@@ -64,19 +64,40 @@ def _cm(x):
     return ("%g" % x).replace(".", ",")
 
 
-def _opis_pasma(p):
-    """Jedno pasmo grubości z /options -> fraza po polsku (grubość liczy się po zaokrągleniu
-    w górę do pełnego cm, do 2 cm jak 2 cm — stąd pasma opisujemy pełnymi centymetrami;
-    pasmo „exact” to grubość tylko dokładnie taka, np. 2,5)."""
-    if p.get("exact"):
-        return "tylko %s cm" % _cm(p["thickness_min"])
-    lo = max(2, int(-(-p["thickness_min"] // 1)))   # ceil bez importu math
-    hi = int(p["thickness_max"] // 1)
-    if lo > hi:
-        return None
-    if lo == hi:
-        return "do 2 cm" if lo == 2 else "%d cm" % lo
-    return "od %d do %d cm" % (lo, hi)
+def _opisy_grubosci(pasma):
+    """Pasma grubości z /options -> lista fraz po polsku z maksymalną długością.
+
+    Grubość liczy się po zaokrągleniu w górę do pełnego cm (do 2 cm jak 2 cm), więc zwykłe pasma
+    rozkładamy na pełne centymetry. Pasma w cenniku potrafią się nakładać (wiersze dla wąskich
+    i szerokich elementów), dlatego dla każdego cm bierzemy NAJWIĘKSZĄ długość ze wszystkich pasm
+    i łączymy kolejne cm o tej samej długości. Pasmo „exact” to grubość tylko dokładnie taka
+    (np. 2,5), opisujemy je osobno."""
+    dlugosc_dla_cm = {}
+    for p in pasma:
+        if p.get("exact"):
+            continue
+        lo = max(2, int(-(-p["thickness_min"] // 1)))   # ceil bez importu math
+        hi = int(p["thickness_max"] // 1)
+        for cm in range(lo, hi + 1):
+            dlugosc_dla_cm[cm] = max(dlugosc_dla_cm.get(cm, 0), p["length_max"])
+    opisy, cm_lista = [], sorted(dlugosc_dla_cm)
+    i = 0
+    while i < len(cm_lista):
+        j = i
+        while (j + 1 < len(cm_lista) and cm_lista[j + 1] == cm_lista[j] + 1
+               and dlugosc_dla_cm[cm_lista[j + 1]] == dlugosc_dla_cm[cm_lista[i]]):
+            j += 1
+        lo, hi = cm_lista[i], cm_lista[j]
+        if lo == hi:
+            fraza = "do 2 cm" if lo == 2 else "%d cm" % lo
+        else:
+            fraza = "od %d do %d cm" % (lo, hi)
+        opisy.append("%s (długość do %s cm)" % (fraza, _cm(dlugosc_dla_cm[lo])))
+        i = j + 1
+    for p in pasma:
+        if p.get("exact"):
+            opisy.append("tylko %s cm (długość do %s cm)" % (_cm(p["thickness_min"]), _cm(p["length_max"])))
+    return opisy
 
 
 def opis_dostepnosci(options):
@@ -98,11 +119,7 @@ def opis_dostepnosci(options):
             continue
         if "thickness_bands" not in v:
             continue
-        czesci = []
-        for p in v["thickness_bands"]:
-            opis = _opis_pasma(p)
-            if opis:
-                czesci.append("%s (długość do %s cm)" % (opis, _cm(p["length_max"])))
+        czesci = _opisy_grubosci(v["thickness_bands"])
         if not czesci:
             linie.append("- %s: NIEDOSTĘPNY" % nazwa)
             continue

@@ -103,3 +103,13 @@ def test_opis_dostepnosci_pusty_gdy_awaria_crm_i_pomija_stary_crm_bez_pasm():
     # starszy CRM bez thickness_bands: nie twierdzimy niczego o wariancie, którego nie znamy
     opis = crm.opis_dostepnosci({"variants": [{"variant_code": "buk-lity-ab"}]})
     assert "buk lity" not in opis
+
+
+def test_opis_dostepnosci_laczy_nakladajace_sie_pasma():
+    # jesion lity w cenniku ma wiersze 0-12 (wąskie elementy) oraz 0-2 i 2,01-12 (szerokie):
+    # bot ma dostać JEDNĄ frazę, nie trzy nakładające się
+    opis = crm.opis_dostepnosci({"variants": [_wariant("jes-lity-ab", [
+        {"thickness_min": 0, "thickness_max": 12, "exact": False, "length_max": 450, "width_max": 9.99},
+        {"thickness_min": 0, "thickness_max": 2, "exact": False, "length_max": 450, "width_max": 120},
+        {"thickness_min": 2.01, "thickness_max": 12, "exact": False, "length_max": 450, "width_max": 120}])]})
+    assert "- jesion lity A/B: grubość od 2 do 12 cm (długość do 450 cm); szerokość do 120 cm" in opis
