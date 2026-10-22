@@ -75,52 +75,17 @@ def test_token_503_gdy_brak_sekretu(monkeypatch):
 
 # === Throttling sprzątania wygasłych zadań ===
 
-class _FakeColumn:
-    """Kolumna, którą da się porównać bez SQLAlchemy."""
-    def __eq__(self, other):
-        return True
-
-    def __lt__(self, other):
-        return True
-
-    def __hash__(self):
-        return 0
-
-
-class _FakeQuery:
-    def __init__(self, counter):
-        self._counter = counter
-
-    def filter(self, *args, **kwargs):
-        return self
-
-    def order_by(self, *args, **kwargs):   # stała kolejność zapisów wygasania (dokładka po re-review 4.10)
-        return self
-
-    def all(self):
-        # Od 2026-09 sprzątanie WYBIERA wygasające zadania zamiast robić bulk
-        # UPDATE — musi znać product_id każdego z nich, żeby cofnąć licznik
-        # wydrukowanych etykiet. Pusta lista wystarcza: te testy pilnują
-        # throttle'u, czyli JAK CZĘSTO sprzątanie rusza, a nie co zmienia.
-        self._counter.append(1)
-        return []
-
-    def update(self, *args, **kwargs):
-        self._counter.append(1)
-        return 0
-
-
 @pytest.fixture
 def expire_calls(monkeypatch):
+    """Od agenta druku v2 całe sprzątanie siedzi w kolejka.wygas — te testy pilnują throttle'u, czyli
+    JAK CZĘSTO ono rusza, a nie co zmienia."""
     calls = []
 
-    class _FakeModel:
-        status = _FakeColumn()
-        requested_at = _FakeColumn()
-        id = _FakeColumn()
-        query = _FakeQuery(calls)
+    def _wygas(teraz=None):
+        calls.append(1)
+        return {'claimed_do_pending': 0, 'sending_do_unknown': 0, 'expired': 0}
 
-    monkeypatch.setattr(print_agent_api, 'LabelPrintJob', _FakeModel)
+    monkeypatch.setattr(print_agent_api.kolejka, 'wygas', _wygas)
     monkeypatch.setattr(print_agent_api, '_last_expire_at', None)
     return calls
 

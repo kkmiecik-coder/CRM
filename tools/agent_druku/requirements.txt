@@ -1,0 +1,5 @@
+# Budowanie AgentDruku.exe (zasobnik + PyInstaller). Rdzeń agenta działa na samej bibliotece
+# standardowej; te pakiety potrzebne są tylko do ikony w zasobniku i pakowania.
+pystray==0.19.5
+Pillow==13.0.0
+pyinstaller==6.22.3

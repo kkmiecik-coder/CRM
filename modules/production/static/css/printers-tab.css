@@ -1,0 +1,723 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   ZAKŁADKA „DRUKARKI” (agent druku v2) — Industrial Light
+
+   Wygląd wspólny z Urządzeniami mobilnymi i Stanowiskami: tokeny --il-* z production-panel.css,
+   białe karty z 1px obramowaniem i promieniem 3px, nagłówki mono (JetBrains Mono), bez gradientów,
+   cieni i animacji. Kolory stanów drukarki jak w docs/api-mobile-drukarki.md: żółty = wymaga uwagi
+   (brak etykiet, klapa, pauza), czerwony = nie drukuje (offline, błąd, stan nieznany).
+
+   Wszystkie reguły mają prefiks `.drk-tab`: ten plik ładuje się PRZED vendor/bootstrap.min.css,
+   więc pojedyncza klasa przegrywałaby z Bootstrapem. Karta „Stary agent” używa klas .config-*
+   z config-tab.css (przeniesiona z Konfiguracji bez zmian wyglądu).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.drk-tab {
+    /* Tekst pomocniczy: ciemniejszy niż --il-text-secondary (kontrast ok. 5,9:1 na bieli) */
+    --drk-tekst-2: #5f6776;
+    width: 100%;
+    padding-bottom: 60px;
+    color: var(--il-text-primary, #1a1a2e);
+    font-size: 13px;
+}
+
+.drk-tab *,
+.drk-tab *::before,
+.drk-tab *::after { box-sizing: border-box; }
+
+.drk-tab :is(button, input, select, textarea, a):focus-visible {
+    outline: 2px solid var(--il-status-info, #2563eb);
+    outline-offset: 2px;
+}
+
+.drk-tab .drk-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.drk-tab [hidden] { display: none !important; }
+
+/* ─── PODZAKŁADKI (jak .urz-subnav) ─── */
+.drk-tab .drk-subnav {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+    margin-bottom: 16px;
+}
+
+.drk-tab .drk-subnav-btn {
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 8px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--il-text-secondary, #7a8291);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.drk-tab .drk-subnav-btn:hover {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--il-border, #c8cdd5);
+}
+
+.drk-tab .drk-subnav-btn.active {
+    color: var(--production-primary, #2c5530);
+    border-bottom-color: var(--production-primary, #2c5530);
+}
+
+.drk-tab .drk-subnav-btn:focus-visible { outline-offset: -2px; }
+
+/* ─── NAGŁÓWEK (jak .urz-header) ─── */
+.drk-tab .drk-header {
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+}
+
+.drk-tab .drk-header-gora {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.drk-tab .drk-header h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--il-text-secondary, #7a8291);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 0 0 4px;
+}
+
+.drk-tab .drk-header h2 i {
+    color: var(--il-text-muted, #9ba3b0);
+    margin-right: 8px;
+}
+
+.drk-tab .drk-header p {
+    color: var(--drk-tekst-2);
+    font-size: 12px;
+    margin: 0;
+    max-width: 90ch;
+}
+
+.drk-tab .drk-header-akcje {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.drk-tab .drk-odswiezono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--drk-tekst-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ─── KARTY STANU: agent, dwie drukarki, stary agent ─── */
+.drk-tab .drk-stany {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.drk-tab .drk-stan {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    padding: 12px 14px;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+/* Pasek z lewej mówi, czy karta wymaga uwagi; znaczenie niesie też pigułka i tekst */
+.drk-tab .drk-stan--uwaga { border-left: 4px solid var(--il-status-warn, #d97706); }
+.drk-tab .drk-stan--alarm { border-left: 4px solid var(--il-status-danger, #dc2626); }
+.drk-tab .drk-stan--stary { background: var(--il-bg-base, #eef0f4); }
+
+.drk-tab .drk-stan-naglowek {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.drk-tab .drk-stan-ikona {
+    width: 16px;
+    text-align: center;
+    color: var(--il-text-muted, #9ba3b0);
+}
+
+.drk-tab .drk-stan-naglowek h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.drk-tab .drk-stan-tresc { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+.drk-tab .drk-stan-glowny {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+}
+
+.drk-tab .drk-stan-komunikat { font-weight: 600; overflow-wrap: anywhere; }
+
+.drk-tab .drk-stan-liczby {
+    display: flex;
+    gap: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--drk-tekst-2);
+}
+
+.drk-tab .drk-stan-liczby strong { color: var(--il-text-primary, #1a1a2e); font-weight: 600; }
+
+.drk-tab .drk-stan-akcje {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: auto;
+}
+
+/* Przełącznik „Obsługuje: stary agent / nowy agent” — dwa przyciski, wybrany wypełniony */
+.drk-tab .drk-obsluga {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.drk-tab .drk-obsluga-etykieta { font-size: 12px; color: var(--drk-tekst-2); margin-right: 2px; }
+
+.drk-tab .drk-obsluga-btn {
+    padding: 3px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    background: var(--il-bg-card, #fff);
+    color: var(--il-text-primary, #1a1a2e);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    cursor: pointer;
+}
+
+.drk-tab .drk-obsluga-btn:hover { border-color: var(--production-primary, #2c5530); }
+
+.drk-tab .drk-obsluga-btn[aria-pressed="true"] {
+    background: var(--production-primary, #2c5530);
+    border-color: var(--production-primary, #2c5530);
+    color: #fff;
+    font-weight: 600;
+    cursor: default;
+}
+
+/* ─── PIGUŁKI STANU ─── */
+.drk-tab .drk-pigulka {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.drk-tab .drk-pigulka--ok { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+.drk-tab .drk-pigulka--warn { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.drk-tab .drk-pigulka--danger { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.drk-tab .drk-pigulka--info { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+.drk-tab .drk-pigulka--szara {
+    background: var(--il-bg-base, #eef0f4);
+    color: var(--drk-tekst-2);
+    border-color: var(--il-border, #c8cdd5);
+}
+
+/* ─── KARTY (jak .urz-karta) ─── */
+.drk-tab .drk-karta {
+    container: drk-karta / inline-size;
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+    margin-bottom: 16px;
+}
+
+.drk-tab .drk-karta-naglowek {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+}
+
+.drk-tab .drk-karta-tytul {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1 1 320px;
+}
+
+.drk-tab .drk-karta-ikona {
+    color: var(--il-text-muted, #9ba3b0);
+    font-size: 16px;
+    width: 18px;
+    text-align: center;
+}
+
+.drk-tab .drk-karta-tytul h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.drk-tab .drk-karta-podtytul {
+    font-size: 11px;
+    color: var(--drk-tekst-2);
+    margin: 0;
+    max-width: 90ch;
+}
+
+.drk-tab .drk-karta-tresc { padding: 12px 16px; }
+.drk-tab .drk-karta-tresc--tabela { padding: 0; }
+
+.drk-tab .drk-pusto {
+    margin: 0;
+    padding: 4px 0;
+    color: var(--drk-tekst-2);
+}
+
+.drk-tab .drk-filtry { display: flex; gap: 8px; flex-wrap: wrap; }
+.drk-tab .drk-filtry .form-select { width: auto; min-width: 150px; font-size: 12px; }
+
+/* ─── PRZYCISKI ─── */
+.drk-tab .drk-btn {
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 4px 10px;
+    border-radius: var(--il-radius, 3px);
+    white-space: nowrap;
+}
+
+/* ─── TABELE (jak .urz-tabela) ─── */
+.drk-tab .drk-tabela {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.drk-tab .drk-tabela th {
+    padding: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: left;
+    color: var(--drk-tekst-2);
+    border-bottom: 1px solid var(--il-border, #c8cdd5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.drk-tab .drk-tabela td {
+    padding: 9px 8px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    overflow: hidden;
+}
+
+.drk-tab .drk-tabela tbody tr:last-child td { border-bottom: none; }
+.drk-tab .drk-tabela :is(th, td):first-child { padding-left: 16px; }
+.drk-tab .drk-tabela :is(th, td):last-child { padding-right: 16px; }
+
+.drk-tab .drk-tabela code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.drk-tab .drk-ell {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drk-tab .drk-mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+.drk-tab .drk-drobne { display: block; font-size: 11px; color: var(--drk-tekst-2); overflow-wrap: anywhere; white-space: normal; }
+.drk-tab .drk-blad-zadania { color: #991b1b; }
+.drk-tab .drk-liczba { text-align: right; font-variant-numeric: tabular-nums; }
+.drk-tab .drk-pusty td { white-space: normal; }
+.drk-tab .drk-k-akcje { text-align: right; white-space: nowrap; }
+.drk-tab .drk-k-akcje .drk-btn + .drk-btn { margin-left: 6px; }
+
+.drk-tab .drk-tabela--zadania .drk-k-czas { width: 120px; }
+.drk-tab .drk-tabela--zadania .drk-k-drukarka { width: 110px; }
+.drk-tab .drk-tabela--zadania .drk-k-skad { width: 150px; }
+.drk-tab .drk-tabela--zadania .drk-k-stan { width: 210px; }
+.drk-tab .drk-tabela--zadania .drk-k-akcje { width: 100px; }
+
+.drk-tab .drk-tabela--historia .drk-k-wersja { width: 80px; }
+.drk-tab .drk-tabela--historia .drk-k-czas { width: 140px; }
+.drk-tab .drk-tabela--historia .drk-k-zrodlo { width: 150px; }
+
+.drk-tab .drk-tabela--agenci .drk-k-kontakt { width: 190px; }
+.drk-tab .drk-tabela--agenci .drk-k-wersja-agenta { width: 90px; }
+.drk-tab .drk-tabela--agenci .drk-k-utworzono { width: 130px; }
+.drk-tab .drk-tabela--agenci .drk-k-akcje { width: 210px; }
+
+.drk-tab .drk-tabela--wydania .drk-k-wersja-agenta { width: 90px; }
+.drk-tab .drk-tabela--wydania .drk-k-rozmiar { width: 90px; padding-right: 16px; }
+.drk-tab .drk-tabela--wydania .drk-k-sha { width: 110px; }
+.drk-tab .drk-tabela--wydania .drk-k-utworzono { width: 130px; }
+.drk-tab .drk-tabela--wydania .drk-k-aktywne { width: 80px; }
+
+/* Lista zmian w historii konfiguracji: ścieżka i wartości, jedna zmiana w wierszu */
+.drk-tab .drk-zmiany { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.drk-tab .drk-zmiany li { overflow-wrap: anywhere; }
+.drk-tab .drk-zmiany code { white-space: normal; font-size: 11px; }
+
+.drk-tab .drk-stronicowanie {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    border-top: 1px solid var(--il-border-light, #e2e5ea);
+    font-size: 12px;
+    color: var(--drk-tekst-2);
+}
+
+.drk-tab .drk-stronicowanie .drk-btn + .drk-btn { margin-left: 6px; }
+
+.drk-tab .drk-przelacznik { min-height: 0; }
+.drk-tab .drk-przelacznik .form-check-input { cursor: pointer; margin-top: 0; }
+.drk-tab .drk-przelacznik .form-check-input:checked {
+    background-color: var(--il-status-ok, #16a34a);
+    border-color: var(--il-status-ok, #16a34a);
+}
+
+/* ─── ZWĘŻANIE: wiersz tabeli jako blok „etykieta: wartość” (jak Urządzenia) ─── */
+@container drk-karta (max-width: 760px) {
+    .drk-tab .drk-tabela--wydania .drk-k-sha,
+    .drk-tab .drk-tabela--agenci .drk-k-utworzono { display: none; }
+}
+
+@container drk-karta (max-width: 640px) {
+    .drk-tab .drk-tabela,
+    .drk-tab .drk-tabela tbody { display: block; }
+
+    .drk-tab .drk-tabela thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+    }
+
+    .drk-tab .drk-tabela tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 12px;
+        row-gap: 4px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    }
+
+    .drk-tab .drk-tabela tbody tr:last-child { border-bottom: none; }
+
+    .drk-tab .drk-tabela td,
+    .drk-tab .drk-tabela td:first-child,
+    .drk-tab .drk-tabela td:last-child {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        grid-column: 1 / -1;
+        min-width: 0;
+        width: auto;
+        padding: 0;
+        border: none;
+        text-align: left;
+    }
+
+    .drk-tab .drk-tabela--wydania .drk-k-sha,
+    .drk-tab .drk-tabela--agenci .drk-k-utworzono { display: flex; }
+
+    .drk-tab .drk-tabela td[data-label]::before {
+        content: attr(data-label);
+        flex: 0 0 100px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--drk-tekst-2);
+    }
+
+    .drk-tab .drk-tabela td:not(.drk-k-akcje, .drk-k-aktywne) > * { flex: 1 1 auto; min-width: 0; }
+
+    .drk-tab .drk-tabela td.drk-k-akcje,
+    .drk-tab .drk-tabela td.drk-k-aktywne {
+        grid-column: 2;
+        grid-row: 1;
+        align-self: start;
+        justify-content: flex-end;
+    }
+
+    .drk-tab .drk-tabela td.drk-k-glowna {
+        grid-column: 1;
+        grid-row: 1;
+        align-self: center;
+        font-weight: 600;
+    }
+
+    .drk-tab .drk-tabela td.drk-liczba { justify-content: flex-start; }
+    .drk-tab .drk-tabela .drk-pusty { display: block; padding: 14px 16px; }
+    .drk-tab .drk-tabela .drk-pusty td { display: block; padding: 0; }
+}
+
+/* ─── FORMULARZE (jak .urz-formularz) ─── */
+.drk-tab .drk-formularz { max-width: 980px; }
+
+.drk-tab .drk-grupa {
+    margin: 0 0 16px;
+    padding: 0 0 16px;
+    border: none;
+    border-bottom: 1px solid var(--il-border-light, #e2e5ea);
+    min-width: 0;
+}
+
+.drk-tab .drk-grupa legend {
+    float: none;
+    width: auto;
+    margin: 0 0 8px;
+    padding: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--il-text-primary, #1a1a2e);
+}
+
+.drk-tab .drk-pole { margin-bottom: 12px; min-width: 0; }
+
+.drk-tab .drk-pole label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--drk-tekst-2);
+}
+
+.drk-tab .drk-wymagane { color: var(--il-status-danger, #dc2626); }
+
+.drk-tab .drk-pole :is(input[type="text"], input[type="number"], input[type="time"], input[type="file"], select, textarea) {
+    display: block;
+    width: 100%;
+    padding: 6px 9px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--il-text-primary, #1a1a2e);
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+.drk-tab .drk-pole input[type="file"] { padding: 4px 8px; cursor: pointer; }
+.drk-tab .drk-pole textarea { min-height: 70px; resize: vertical; line-height: 1.5; }
+
+.drk-tab .drk-pole :is(input, select, textarea):focus-visible {
+    outline: 2px solid var(--il-status-info, #2563eb);
+    outline-offset: 0;
+    border-color: var(--il-status-info, #2563eb);
+}
+
+.drk-tab .drk-pole .drk-pole-blad { border-color: var(--il-status-danger, #dc2626); }
+
+.drk-tab .drk-podpowiedz {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--drk-tekst-2);
+}
+
+.drk-tab .drk-podpowiedz--grupa { margin: -4px 0 10px; }
+
+.drk-tab .drk-pola-rzad {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 16px;
+}
+
+.drk-tab .drk-pola-rzad--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+/* Wiersz drukarki w dokumencie konfiguracji: sześć pól i przycisk usunięcia */
+.drk-tab .drk-drukarki-wiersze { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+
+.drk-tab .drk-drukarka-wiersz {
+    display: grid;
+    grid-template-columns: 150px minmax(120px, 1fr) 90px minmax(100px, 1fr) 120px 110px auto;
+    gap: 0 10px;
+    align-items: end;
+    padding: 10px 12px 0;
+    background: var(--il-bg-base, #eef0f4);
+    border: 1px solid var(--il-border, #c8cdd5);
+    border-radius: var(--il-radius, 3px);
+}
+
+.drk-tab .drk-drukarka-usun {
+    margin-bottom: 12px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    color: var(--il-status-danger, #dc2626);
+    background: var(--il-bg-card, #fff);
+    border: 1px solid var(--il-status-danger, #dc2626);
+    border-radius: var(--il-radius, 3px);
+    cursor: pointer;
+}
+
+.drk-tab .drk-drukarka-usun:hover { background: var(--il-status-danger, #dc2626); color: #fff; }
+
+@container drk-karta (max-width: 900px) {
+    .drk-tab .drk-drukarka-wiersz { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .drk-tab .drk-drukarka-usun { justify-self: start; }
+    .drk-tab .drk-pola-rzad--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container drk-karta (max-width: 520px) {
+    .drk-tab .drk-drukarka-wiersz,
+    .drk-tab .drk-pola-rzad,
+    .drk-tab .drk-pola-rzad--4 { grid-template-columns: minmax(0, 1fr); }
+    .drk-tab .drk-karta-naglowek,
+    .drk-tab .drk-karta-tresc { padding-left: 12px; padding-right: 12px; }
+}
+
+/* Błędy walidacji i ostrzeżenie o nadpisanej wersji: ramka z lewym paskiem */
+.drk-tab .drk-bledy,
+.drk-tab .drk-nadpisano {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: var(--il-radius, 3px);
+    font-size: 12px;
+}
+
+.drk-tab .drk-bledy {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-left: 4px solid var(--il-status-danger, #dc2626);
+    color: #991b1b;
+}
+
+.drk-tab .drk-bledy ul { margin: 4px 0 0; padding-left: 18px; }
+
+.drk-tab .drk-nadpisano {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-left: 4px solid var(--il-status-warn, #d97706);
+    color: #92400e;
+}
+
+.drk-tab .drk-formularz-akcje {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+}
+
+.drk-tab .drk-status { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.drk-tab .drk-status--blad { color: var(--il-status-danger, #dc2626); }
+.drk-tab .drk-status--ok { color: var(--il-status-ok, #16a34a); }
+
+/* „Aktywuj od razu” (jak w Urządzeniach) */
+.drk-tab .drk-aktywuj {
+    margin-bottom: 14px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-left: 4px solid var(--il-status-warn, #d97706);
+    border-radius: var(--il-radius, 3px);
+}
+
+.drk-tab .drk-aktywuj-etykieta {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0;
+    padding: 10px 12px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.drk-tab .drk-aktywuj-etykieta input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin: 2px 0 0;
+    accent-color: var(--il-status-warn, #d97706);
+}
+
+.drk-tab .drk-aktywuj-ostrzezenie { display: block; margin-top: 2px; font-size: 12px; color: #92400e; }
+
+/* ─── KARTA STAREGO AGENTA: pasek zapisu pod polami (zamiast ogólnego paska Konfiguracji) ─── */
+.drk-tab .drk-karta-stary { margin-bottom: 16px; }
+
+.drk-tab .drk-zapis {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-left: 4px solid var(--il-status-warn, #d97706);
+    border-radius: var(--il-radius, 3px);
+}
+
+.drk-tab .drk-zapis-tekst { margin-right: auto; font-size: 12px; color: #92400e; }
+.drk-tab .config-item-changed { background: #fffbeb; }
+
+/* ─── OKNA (poza .drk-tab nie są — modal leży w korzeniu zakładki) ─── */
+.drk-tab .drk-token-rzad { display: flex; gap: 8px; }
+
+.drk-tab .drk-token {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+}
+
+@media (max-width: 700px) {
+    .drk-tab .drk-subnav-btn { padding: 8px 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .drk-tab * { scroll-behavior: auto; transition: none; animation: none; }
+}

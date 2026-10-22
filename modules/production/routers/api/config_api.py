@@ -20,6 +20,13 @@ PREFIKSY_KLUCZY_PRIORYTETOW = ('priorytety_', 'DEADLINE_')
 KOMUNIKAT_KLUCZ_PRIORYTETOW = (u'Ten klucz zapisuje się w Konfiguracji → Terminy / Stół stanowisk '
                                u'(PUT /production/api/priorytety/ustawienia)')
 
+# Przesunięcia wydruku zapisuje WYŁĄCZNIE dokument konfiguracji agenta druku (PUT /production/api/drukarki/konfiguracja,
+# zakładka „Drukarki”) — dwie drogi zapisu rozjeżdżałyby dokument i prod_config.
+KLUCZE_PRZESUNIEC_DRUKARKI = ('LABEL_PRINTER_OFFSET_LT', 'LABEL_PRINTER_OFFSET_LS',
+                              'PACKAGE_LABEL_OFFSET_X_DOTS', 'PACKAGE_LABEL_OFFSET_Y_DOTS')
+KOMUNIKAT_KLUCZ_PRZESUNIECIA = (u'Przesunięcia wydruku zapisuje zakładka Drukarki '
+                                u'(PUT /production/api/drukarki/konfiguracja)')
+
 
 @api_bp.route('/update-config', methods=['POST'])
 @admin_required
@@ -61,6 +68,8 @@ def update_config():
         # Druga droga zapisu kluczy priorytetów i terminów zamknięta (plan K4b, Doprecyzowania 14).
         if str(config_key).startswith(PREFIKSY_KLUCZY_PRIORYTETOW):
             return jsonify({'success': False, 'error': KOMUNIKAT_KLUCZ_PRIORYTETOW}), 400
+        if str(config_key) in KLUCZE_PRZESUNIEC_DRUKARKI:
+            return jsonify({'success': False, 'error': KOMUNIKAT_KLUCZ_PRZESUNIECIA}), 400
         
         # Walidacja config_type
         valid_types = ['string', 'integer', 'boolean', 'json', 'ip_list']
@@ -523,6 +532,9 @@ def update_configs():
             'WORKER_SESSION_NIGHT_CUTOFF', 'WORKER_QUICK_PICK_COUNT',
         }
         
+        if set(configs_dict.keys()) & set(KLUCZE_PRZESUNIEC_DRUKARKI):
+            return jsonify({'success': False, 'error': KOMUNIKAT_KLUCZ_PRZESUNIECIA}), 400
+
         invalid_keys = set(configs_dict.keys()) - allowed_config_keys
         if invalid_keys:
             return jsonify({

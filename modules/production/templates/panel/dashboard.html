@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/workers-tab.css') }}?v=20260811">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/devices-tab.css') }}?v=20261012b">
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/stations-tab.css') }}?v=20261013e">
+    <link rel="stylesheet" href="{{ url_for('production.static', filename='css/printers-tab.css') }}?v=20261022a">
     <!-- CSS dla komponentów -->
     <link rel="stylesheet" href="{{ url_for('production.static', filename='css/dashboard_bl_sync_modal.css') }}?v=20261012">
     <!-- CSS uzupełniające -->
@@ -120,6 +121,15 @@
                         <i class="fas fa-tablet-alt me-2"></i>Urządzenia mobilne<span class="badge bg-danger ms-2" id="devices-tab-badge" style="display:none">0</span>
                     </button>
                     {% endif %}
+                    <button class="nav-link"
+                            id="printers-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#printers-tab-content"
+                            type="button" role="tab"
+                            aria-controls="printers-tab-content"
+                            aria-selected="false">
+                        <i class="fas fa-print me-2"></i>Drukarki
+                    </button>
                     <button class="nav-link"
                             id="config-tab"
                             data-bs-toggle="tab"
@@ -322,6 +332,17 @@
                     <div class="tab-pane fade" id="devices-tab-content" role="tabpanel" aria-labelledby="devices-tab"></div>
                     {% endif %}
 
+                    <!-- Drukarki (agent druku v2): endpoint zwraca gotowy HTML; sekcje admina renderuje tylko dla admina -->
+                    <div class="tab-pane fade" id="printers-tab-content" role="tabpanel" aria-labelledby="printers-tab">
+                        <div class="tab-content-wrapper" id="printers-tab-wrapper"></div>
+                        <div class="tab-error" id="printers-tab-error" style="display:none;">
+                            <div class="alert alert-danger">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <span id="printers-tab-error-message"></span>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Config Tab (tylko admin) -->
                     <div class="tab-pane fade"
                          id="config-tab-content"
@@ -403,9 +424,10 @@
     <script src="{{ url_for('priorytety_panel.static', filename='js/priorytety.js') }}?v=20261005e"></script>
     <script src="{{ url_for('production.static', filename='js/modules/products-module.js') }}?v=20261020a"></script>
     <script src="{{ url_for('production.static', filename='js/modules/archive-module.js') }}?v=20261005a"></script>
-    <script src="{{ url_for('production.static', filename='js/modules/config-module.js') }}?v=20261005c"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/config-module.js') }}?v=20261022a"></script>
+    <script src="{{ url_for('production.static', filename='js/modules/printers-tab.js') }}?v=20261022a"></script>
     <!-- Główny kontroler aplikacji -->
-    <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}?v=20261012urz"></script>
+    <script src="{{ url_for('production.static', filename='js/production-app-loader.js') }}?v=20261022drk"></script>
     <!-- Obsługa modala synchronizacji z Baselinkerem -->
     <script src="{{ url_for('production.static', filename='js/modules/dashboard_bl_sync_modal.js') }}?v=20261012"></script>
     <!-- Obsługa załączników produktów -->

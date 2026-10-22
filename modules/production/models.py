@@ -975,6 +975,12 @@ class LabelPrintJob(db.Model):
     STATUS_PRINTED = 'printed'
     STATUS_FAILED = 'failed'
     STATUS_EXPIRED = 'expired'
+    # Agent druku v2: zadanie pobrane (dzierżawa), w trakcie wysyłki do drukarki,
+    # wynik nieznany (wysyłka przerwana w połowie) i anulowane przez biuro.
+    STATUS_CLAIMED = 'claimed'
+    STATUS_SENDING = 'sending'
+    STATUS_UNKNOWN = 'unknown'
+    STATUS_CANCELLED = 'cancelled'
 
     # Drukarki (logistyka etap 4, spec 5.1). Nazwy są wspólne z agentem druku
     # (sekcje [printer:<nazwa>] w jego config.ini) — zmiana tu = zmiana na hubie.
@@ -1011,7 +1017,8 @@ class LabelPrintJob(db.Model):
         default=datetime.utcnow, nullable=False,
     )
     status = Column(
-        Enum('pending', 'printed', 'failed', 'expired', name='print_job_status'),
+        Enum('pending', 'claimed', 'sending', 'printed', 'failed', 'expired', 'unknown', 'cancelled',
+             name='print_job_status'),
         default='pending', nullable=False, index=True,
     )
     # Drukarka docelowa. Domyślna 'etykiety': kod etykiet produktów jej nie podaje,
@@ -1021,6 +1028,11 @@ class LabelPrintJob(db.Model):
     package_id = Column(Integer, ForeignKey('prod_packages.id', ondelete='SET NULL'), nullable=True)
     printed_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
+    # Agent druku v2 (czasy zegarem serwera, DATETIME(3) na MySQL).
+    claimed_by_agent_id = Column(Integer, nullable=True)
+    lease_until = Column(DateTime().with_variant(MYSQL_DATETIME(fsp=3), 'mysql'), nullable=True)
+    sending_at = Column(DateTime().with_variant(MYSQL_DATETIME(fsp=3), 'mysql'), nullable=True)
+    reprint_of_job_id = Column(Integer, nullable=True)
 
     def __repr__(self):
         return f'<LabelPrintJob {self.id} {self.short_product_id} {self.status}>'

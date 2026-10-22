@@ -88,7 +88,8 @@ class ProductionApp {
         if (tabParam) {
             const tabName = tabParam.endsWith('-tab') ? tabParam : `${tabParam}-tab`;
             const validTabs = ['dashboard-tab', 'products-tab', 'stations-tab', 'archive-tab', 'logistics-tab',
-                               'sawmill-tab', 'reports-tab', 'workers-tab', 'devices-tab', 'config-tab'];
+                               'sawmill-tab', 'reports-tab', 'workers-tab', 'devices-tab', 'printers-tab',
+                               'config-tab'];
             // Zakładka bez przycisku (np. Urządzenia dla nie-admina) nie może być celem z linku.
             if (validTabs.includes(tabName) && document.getElementById(tabName)) {
                 return tabName;
@@ -283,6 +284,7 @@ class ProductionApp {
             case 'reports-tab': await this.loadReportsTab(); break;
             case 'workers-tab': await this.loadWorkersTab(); break;
             case 'devices-tab': await this.loadDevicesTab(); break;
+            case 'printers-tab': await this.loadPrintersTab(); break;
             case 'config-tab': await this.loadConfigTab(); break;
             default: throw new Error(`Unknown tab: ${normalizedTabName}`);
         }
@@ -537,6 +539,38 @@ class ProductionApp {
         } catch (error) {
             console.error('[ProductionApp] Devices loading failed:', error);
             this.showTabError('devices-tab', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Zakładka „Drukarki” (agent druku v2). /production/api/drukarki/tab-content zwraca gotowy HTML; obsługa
+     * siedzi w static/js/modules/printers-tab.js (ładowany w dashboard.html), start ze skryptu na końcu szablonu.
+     * Zwykły fetch, nie apiClient — ten zapamiętuje GET-y, a zakładka ma pokazać bieżący stan drukarek.
+     */
+    async loadPrintersTab() {
+        console.log('[ProductionApp] Loading printers tab...');
+        try {
+            const response = await fetch('/production/api/drukarki/tab-content', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('Brak dostępu do modułu produkcji');
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const html = await response.text();
+            const wrapper = document.getElementById('printers-tab-wrapper');
+            if (wrapper) {
+                wrapper.innerHTML = html;
+                this.executeInlineScripts(wrapper);
+            }
+            this.hideTabError('printers-tab');
+            console.log('[ProductionApp] Printers tab loaded');
+        } catch (error) {
+            console.error('[ProductionApp] Printers loading failed:', error);
+            this.showTabError('printers-tab', error.message);
             throw error;
         }
     }

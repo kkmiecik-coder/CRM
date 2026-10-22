@@ -1,0 +1,684 @@
+<!-- printers-tab-content.html — zakładka „Drukarki” (agent druku v2). Endpoint: GET /production/api/drukarki/tab-content.
+     Przegląd (stan agenta i drukarek, lista zadań z Ponów/Anuluj, wydruk próbny) widzi każdy z dostępem do panelu
+     produkcji. Podzakładki admina (konfiguracja agenta, agenci i wydania, stary agent) renderują się tylko dla admina,
+     a ich końcówki i tak pilnuje admin_required. Wygląd: „Industrial Light” jak Urządzenia mobilne (tokeny --il-*),
+     style w static/css/printers-tab.css pod prefiksem .drk-tab; obsługa w static/js/modules/printers-tab.js
+     (ładowany w panel/dashboard.html, start ze skryptu na końcu tego szablonu). -->
+{% macro meta_zmiany(wpis) -%}
+<div class="config-item-meta">
+    <div class="config-item-meta-item">
+        <i class="fas fa-clock"></i>
+        <span>{% if wpis.zmieniono %}Zmieniono: <span class="drk-czas" data-czas="{{ wpis.zmieniono }}">{{ wpis.zmieniono[:16]|replace('T', ' ') }}</span>{% else %}Wartość domyślna{% endif %}</span>
+    </div>
+</div>
+{%- endmacro %}
+
+{% macro reset(klucz, wpis) -%}
+{% if wpis.domyslna is not none %}
+<button type="button" class="config-reset-btn" data-drk-reset="{{ klucz }}" title="Przywróć domyślne" aria-label="Przywróć domyślne">
+    <i class="fas fa-undo"></i>
+</button>
+{% endif %}
+{%- endmacro %}
+
+<div class="drk-tab" id="drk-root" data-is-admin="{{ 'true' if is_admin else 'false' }}"
+     data-api-base="/production/api/drukarki">
+
+    {% if is_admin %}
+    <!-- ═══ Podzakładki (tylko admin; zwykły użytkownik widzi sam przegląd) ═══ -->
+    <div class="drk-subnav" role="tablist" aria-label="Drukarki">
+        <button type="button" class="drk-subnav-btn active" id="drk-sub-przeglad" data-sub="przeglad"
+                role="tab" aria-selected="true" aria-controls="drk-panel-przeglad" tabindex="0">Przegląd</button>
+        <button type="button" class="drk-subnav-btn" id="drk-sub-konfiguracja" data-sub="konfiguracja"
+                role="tab" aria-selected="false" aria-controls="drk-panel-konfiguracja" tabindex="-1">Konfiguracja agenta</button>
+        <button type="button" class="drk-subnav-btn" id="drk-sub-agenci" data-sub="agenci"
+                role="tab" aria-selected="false" aria-controls="drk-panel-agenci" tabindex="-1">Agenci i wydania</button>
+        <button type="button" class="drk-subnav-btn" id="drk-sub-stary" data-sub="stary"
+                role="tab" aria-selected="false" aria-controls="drk-panel-stary" tabindex="-1">Stary agent</button>
+    </div>
+    {% endif %}
+
+    <!-- ═══════════════ PRZEGLĄD ═══════════════ -->
+    <div class="drk-pane" id="drk-panel-przeglad" {% if is_admin %}role="tabpanel" aria-labelledby="drk-sub-przeglad"{% endif %}>
+
+        <div class="drk-header">
+            <div class="drk-header-gora">
+                <div>
+                    <h2><i class="fas fa-print"></i>Drukarki</h2>
+                    <p>Agent druku na komputerze hali i dwie drukarki: etykiety produktów i etykiety paczek. Stan odświeża się
+                        co 15 s, dopóki zakładka jest otwarta.</p>
+                </div>
+                <div class="drk-header-akcje">
+                    <span class="drk-odswiezono" id="drk-odswiezono" aria-live="polite"></span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm drk-btn" id="drk-odswiez">
+                        <i class="fas fa-sync-alt me-1" aria-hidden="true"></i>Odśwież
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Karty stanu: agent, obie drukarki, stary agent. Treść wpisuje printers-tab.js z GET /stan. -->
+        <div class="drk-stany" id="drk-stany">
+            <section class="drk-stan" id="drk-stan-agent" aria-labelledby="drk-stan-agent-tytul">
+                <div class="drk-stan-naglowek">
+                    <i class="fas fa-server drk-stan-ikona" aria-hidden="true"></i>
+                    <h3 id="drk-stan-agent-tytul">Agent druku</h3>
+                </div>
+                <div class="drk-stan-tresc" data-drk-tresc><p class="drk-pusto">Wczytywanie…</p></div>
+            </section>
+            {% for nazwa, opis in role.items() %}
+            <section class="drk-stan" id="drk-stan-{{ nazwa }}" data-drukarka="{{ nazwa }}" aria-labelledby="drk-stan-{{ nazwa }}-tytul">
+                <div class="drk-stan-naglowek">
+                    <i class="fas {{ 'fa-tag' if nazwa == 'etykiety' else 'fa-box' }} drk-stan-ikona" aria-hidden="true"></i>
+                    <h3 id="drk-stan-{{ nazwa }}-tytul">{{ opis }}</h3>
+                </div>
+                <div class="drk-stan-tresc" data-drk-tresc><p class="drk-pusto">Wczytywanie…</p></div>
+                <div class="drk-stan-akcje">
+                    <button type="button" class="btn btn-outline-primary btn-sm drk-btn" data-drk-akcja="wydruk-probny"
+                            data-drukarka="{{ nazwa }}"><i class="fas fa-print me-1" aria-hidden="true"></i>Wydruk próbny</button>
+                    {% if is_admin %}
+                    <button type="button" class="btn btn-outline-secondary btn-sm drk-btn" data-drk-akcja="kalibracja"
+                            data-drukarka="{{ nazwa }}" title="Agent każe drukarce zmierzyć etykietę (czujnik przerwy)">
+                        <i class="fas fa-ruler-horizontal me-1" aria-hidden="true"></i>Kalibruj</button>
+                    {% endif %}
+                </div>
+                {% if is_admin %}
+                <!-- Okres przejściowy: każdą drukarkę obsługuje dokładnie jeden agent -->
+                <div class="drk-obsluga" role="group" aria-label="Który agent obsługuje: {{ opis }}">
+                    <span class="drk-obsluga-etykieta">Obsługuje:</span>
+                    <button type="button" class="drk-obsluga-btn" data-drk-akcja="obsluga" data-drukarka="{{ nazwa }}"
+                            data-agent="stary" aria-pressed="false">stary agent</button>
+                    <button type="button" class="drk-obsluga-btn" data-drk-akcja="obsluga" data-drukarka="{{ nazwa }}"
+                            data-agent="nowy" aria-pressed="false">nowy agent</button>
+                </div>
+                {% endif %}
+            </section>
+            {% endfor %}
+            <section class="drk-stan drk-stan--stary" id="drk-stan-stary" aria-labelledby="drk-stan-stary-tytul">
+                <div class="drk-stan-naglowek">
+                    <i class="fas fa-history drk-stan-ikona" aria-hidden="true"></i>
+                    <h3 id="drk-stan-stary-tytul">Stary agent</h3>
+                </div>
+                <div class="drk-stan-tresc" data-drk-tresc><p class="drk-pusto">Wczytywanie…</p></div>
+            </section>
+        </div>
+
+        <!-- Lista zadań druku -->
+        <section class="drk-karta" aria-labelledby="drk-tytul-zadania">
+            <div class="drk-karta-naglowek">
+                <div class="drk-karta-tytul">
+                    <div class="drk-karta-ikona"><i class="fas fa-list" aria-hidden="true"></i></div>
+                    <div>
+                        <h3 id="drk-tytul-zadania">Zadania druku</h3>
+                        <p class="drk-karta-podtytul">Najnowsze na górze. „Ponów” drukuje etykietę jeszcze raz, „Anuluj” zdejmuje z kolejki zadanie, którego agent jeszcze nie pobrał.</p>
+                    </div>
+                </div>
+                <div class="drk-filtry">
+                    <label class="drk-sr" for="drk-filtr-drukarka">Drukarka</label>
+                    <select class="form-select form-select-sm" id="drk-filtr-drukarka">
+                        <option value="">Wszystkie drukarki</option>
+                        {% for nazwa, opis in role.items() %}<option value="{{ nazwa }}">{{ opis }}</option>{% endfor %}
+                    </select>
+                    <label class="drk-sr" for="drk-filtr-stan">Stan</label>
+                    <select class="form-select form-select-sm" id="drk-filtr-stan">
+                        <option value="">Każdy stan</option>
+                        <option value="pending">czeka</option>
+                        <option value="claimed">pobrane przez agenta</option>
+                        <option value="sending">w wysyłce</option>
+                        <option value="printed">wydrukowane</option>
+                        <option value="failed">błąd</option>
+                        <option value="unknown">wysłane, bez potwierdzenia</option>
+                        <option value="expired">wygasłe</option>
+                        <option value="cancelled">anulowane</option>
+                    </select>
+                </div>
+            </div>
+            <div class="drk-karta-tresc drk-karta-tresc--tabela">
+                <table class="drk-tabela drk-tabela--zadania">
+                    <thead><tr>
+                        <th class="drk-k-czas">Czas</th>
+                        <th class="drk-k-drukarka">Drukarka</th>
+                        <th class="drk-k-co">Co</th>
+                        <th class="drk-k-skad">Skąd</th>
+                        <th class="drk-k-stan">Stan</th>
+                        <th class="drk-k-akcje"><span class="drk-sr">Akcje</span></th>
+                    </tr></thead>
+                    <tbody id="drk-zadania-lista">
+                        <tr class="drk-pusty"><td colspan="6" class="drk-pusto">Wczytywanie…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="drk-stronicowanie">
+                <span id="drk-zadania-licznik"></span>
+                <div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm drk-btn" id="drk-strona-nowsze" disabled>
+                        <i class="fas fa-chevron-left me-1" aria-hidden="true"></i>Nowsze</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm drk-btn" id="drk-strona-starsze" disabled>
+                        Starsze<i class="fas fa-chevron-right ms-1" aria-hidden="true"></i></button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    {% if is_admin %}
+    <!-- ═══════════════ KONFIGURACJA AGENTA (admin) ═══════════════ -->
+    <div class="drk-pane" id="drk-panel-konfiguracja" role="tabpanel" aria-labelledby="drk-sub-konfiguracja" hidden>
+        <div class="drk-header">
+            <h2><i class="fas fa-sliders-h"></i>Konfiguracja agenta</h2>
+            <p>Adresy drukarek, przesunięcia wydruku i godziny pracy aktywnego agenta. Agent pobiera zmiany sam; poprawkę
+                zrobioną na komputerze hali widać tu jako nową wersję w historii.</p>
+        </div>
+
+        <section class="drk-karta" aria-labelledby="drk-tytul-konf">
+            <div class="drk-karta-naglowek">
+                <div class="drk-karta-tytul">
+                    <div class="drk-karta-ikona"><i class="fas fa-sliders-h" aria-hidden="true"></i></div>
+                    <div>
+                        <h3 id="drk-tytul-konf">Dokument konfiguracji</h3>
+                        <p class="drk-karta-podtytul" id="drk-konf-wersja">Wczytywanie…</p>
+                    </div>
+                </div>
+            </div>
+            <div class="drk-karta-tresc">
+                <p class="drk-pusto" id="drk-konf-komunikat" hidden></p>
+                <form id="drk-konf-form" class="drk-formularz" novalidate hidden>
+                    <fieldset class="drk-grupa">
+                        <legend>Drukarki</legend>
+                        <div class="drk-drukarki-wiersze" id="drk-konf-drukarki"></div>
+                        <button type="button" class="btn btn-outline-secondary btn-sm drk-btn" id="drk-konf-dodaj-drukarke">
+                            <i class="fas fa-plus me-1" aria-hidden="true"></i>Dodaj drukarkę</button>
+                    </fieldset>
+
+                    <fieldset class="drk-grupa">
+                        <legend>Przesunięcia wydruku</legend>
+                        <p class="drk-podpowiedz drk-podpowiedz--grupa">W punktach drukarki (8 punktów = 1 mm). Po zmianie zrób wydruk próbny na karcie drukarki w Przeglądzie.</p>
+                        <div class="drk-pola-rzad drk-pola-rzad--4">
+                            <div class="drk-pole">
+                                <label for="drk-konf-lt">Etykiety: LT (góra)</label>
+                                <input type="number" id="drk-konf-lt" step="1" min="-480" max="480" data-sciezka="przesuniecia.etykiety.lt">
+                                <small class="drk-podpowiedz">Zakres ±480.</small>
+                            </div>
+                            <div class="drk-pole">
+                                <label for="drk-konf-ls">Etykiety: LS (lewa)</label>
+                                <input type="number" id="drk-konf-ls" step="1" min="-480" max="480" data-sciezka="przesuniecia.etykiety.ls">
+                                <small class="drk-podpowiedz">Zakres ±480.</small>
+                            </div>
+                            <div class="drk-pole">
+                                <label for="drk-konf-dx">Paczki: w poziomie</label>
+                                <input type="number" id="drk-konf-dx" step="1" min="-120" max="120" data-sciezka="przesuniecia.wysylka.dx">
+                                <small class="drk-podpowiedz">Dodatnie w prawo, zakres ±120.</small>
+                            </div>
+                            <div class="drk-pole">
+                                <label for="drk-konf-dy">Paczki: w pionie</label>
+                                <input type="number" id="drk-konf-dy" step="1" min="-120" max="120" data-sciezka="przesuniecia.wysylka.dy">
+                                <small class="drk-podpowiedz">Dodatnie w dół, zakres ±120.</small>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="drk-grupa">
+                        <legend>Godziny pracy hali</legend>
+                        <p class="drk-podpowiedz drk-podpowiedz--grupa">Poza tymi godzinami agent nie alarmuje o drukarkach.</p>
+                        <div class="drk-pola-rzad drk-pola-rzad--4">
+                            <div class="drk-pole">
+                                <label for="drk-konf-pnpt-od">Pon.–pt.: od</label>
+                                <input type="time" id="drk-konf-pnpt-od" step="60" data-sciezka="godziny.pn_pt.0">
+                            </div>
+                            <div class="drk-pole">
+                                <label for="drk-konf-pnpt-do">Pon.–pt.: do</label>
+                                <input type="time" id="drk-konf-pnpt-do" step="60" data-sciezka="godziny.pn_pt.1">
+                            </div>
+                            <div class="drk-pole">
+                                <label for="drk-konf-sob-od">Sobota: od</label>
+                                <input type="time" id="drk-konf-sob-od" step="60" data-sciezka="godziny.sobota.0">
+                            </div>
+                            <div class="drk-pole">
+                                <label for="drk-konf-sob-do">Sobota: do</label>
+                                <input type="time" id="drk-konf-sob-do" step="60" data-sciezka="godziny.sobota.1">
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <div class="drk-bledy" id="drk-konf-bledy" role="alert" hidden></div>
+                    <div class="drk-nadpisano" id="drk-konf-nadpisano" role="status" hidden></div>
+                    <div class="drk-formularz-akcje">
+                        <button type="submit" class="btn btn-primary btn-sm drk-btn" id="drk-konf-zapisz">
+                            <i class="fas fa-save me-1" aria-hidden="true"></i>Zapisz konfigurację</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm drk-btn" id="drk-konf-wczytaj">
+                            <i class="fas fa-undo me-1" aria-hidden="true"></i>Wczytaj ponownie</button>
+                        <span class="drk-status" id="drk-konf-status" role="status" aria-live="polite"></span>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="drk-karta" aria-labelledby="drk-tytul-historia">
+            <div class="drk-karta-naglowek">
+                <div class="drk-karta-tytul">
+                    <div class="drk-karta-ikona"><i class="fas fa-history" aria-hidden="true"></i></div>
+                    <div>
+                        <h3 id="drk-tytul-historia">Historia zmian</h3>
+                        <p class="drk-karta-podtytul">Ostatnie 50 wersji. Zapis z CRM i z agenta; przy równoczesnych zmianach wygrywa późniejszy.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="drk-karta-tresc drk-karta-tresc--tabela">
+                <table class="drk-tabela drk-tabela--historia">
+                    <thead><tr>
+                        <th class="drk-k-wersja">Wersja</th>
+                        <th class="drk-k-czas">Czas</th>
+                        <th class="drk-k-zrodlo">Skąd</th>
+                        <th class="drk-k-zmiany">Zmiany</th>
+                    </tr></thead>
+                    <tbody id="drk-historia-lista">
+                        <tr class="drk-pusty"><td colspan="4" class="drk-pusto">Wczytywanie…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- ═══════════════ AGENCI I WYDANIA (admin) ═══════════════ -->
+    <div class="drk-pane" id="drk-panel-agenci" role="tabpanel" aria-labelledby="drk-sub-agenci" hidden>
+        <div class="drk-header">
+            <h2><i class="fas fa-key"></i>Agenci i wydania</h2>
+            <p>Agent dostaje token przy parowaniu i wpisuje go raz, przy pierwszym uruchomieniu. Token widać tylko w chwili
+                utworzenia; zgubiony zastąp nowym przyciskiem „Nowy token”.</p>
+        </div>
+
+        <section class="drk-karta" aria-labelledby="drk-tytul-agenci">
+            <div class="drk-karta-naglowek">
+                <div class="drk-karta-tytul">
+                    <div class="drk-karta-ikona"><i class="fas fa-server" aria-hidden="true"></i></div>
+                    <div>
+                        <h3 id="drk-tytul-agenci">Sparowani agenci</h3>
+                        <p class="drk-karta-podtytul">Drukuje agent, który ostatnio się odezwał. Unieważniony agent traci dostęp przy najbliższym połączeniu.</p>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm drk-btn" id="drk-dodaj-agenta">
+                    <i class="fas fa-plus me-1" aria-hidden="true"></i>Dodaj agenta</button>
+            </div>
+            <div class="drk-karta-tresc drk-karta-tresc--tabela">
+                <table class="drk-tabela drk-tabela--agenci">
+                    <thead><tr>
+                        <th class="drk-k-nazwa">Nazwa</th>
+                        <th class="drk-k-kontakt">Ostatni kontakt</th>
+                        <th class="drk-k-wersja-agenta">Wersja</th>
+                        <th class="drk-k-utworzono">Sparowany</th>
+                        <th class="drk-k-akcje"><span class="drk-sr">Akcje</span></th>
+                    </tr></thead>
+                    <tbody id="drk-agenci-lista">
+                        <tr class="drk-pusty"><td colspan="5" class="drk-pusto">Wczytywanie…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="drk-karta" aria-labelledby="drk-tytul-wgraj">
+            <div class="drk-karta-naglowek">
+                <div class="drk-karta-tytul">
+                    <div class="drk-karta-ikona"><i class="fas fa-upload" aria-hidden="true"></i></div>
+                    <div>
+                        <h3 id="drk-tytul-wgraj">Wgraj wydanie agenta</h3>
+                        <p class="drk-karta-podtytul">Instalator .exe. Agent pobierze najnowsze aktywne wydanie i zaktualizuje się sam.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="drk-karta-tresc">
+                <form id="drk-wydanie-form" class="drk-formularz" enctype="multipart/form-data">
+                    <div class="drk-pola-rzad">
+                        <div class="drk-pole">
+                            <label for="drk-wydanie-plik">Instalator <span class="drk-wymagane" aria-hidden="true">*</span></label>
+                            <input type="file" name="plik" id="drk-wydanie-plik" accept=".exe" required>
+                        </div>
+                        <div class="drk-pole">
+                            <label for="drk-wydanie-wersja">Wersja <span class="drk-wymagane" aria-hidden="true">*</span></label>
+                            <input type="text" name="wersja" id="drk-wydanie-wersja" maxlength="32" placeholder="np. 2.0.1" required>
+                        </div>
+                    </div>
+                    <div class="drk-pole">
+                        <label for="drk-wydanie-notatki">Co się zmieniło (opcjonalnie)</label>
+                        <textarea name="notatki" id="drk-wydanie-notatki" rows="3"></textarea>
+                    </div>
+                    <div class="drk-aktywuj">
+                        <label class="drk-aktywuj-etykieta" for="drk-wydanie-aktywne">
+                            <input type="checkbox" name="aktywne" value="1" id="drk-wydanie-aktywne">
+                            <span><strong>Aktywuj od razu</strong>
+                                <span class="drk-aktywuj-ostrzezenie">Agent zainstaluje tę wersję przy najbliższym sprawdzeniu aktualizacji.
+                                    Bez zaznaczenia wydanie zostanie nieaktywne; włączysz je w liście poniżej.</span></span>
+                        </label>
+                    </div>
+                    <div class="drk-formularz-akcje">
+                        <button type="submit" class="btn btn-primary btn-sm drk-btn" id="drk-wydanie-wgraj">
+                            <i class="fas fa-upload me-1" aria-hidden="true"></i>Wgraj wydanie</button>
+                        <span class="drk-status" id="drk-wydanie-status" role="status" aria-live="polite"></span>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="drk-karta" aria-labelledby="drk-tytul-wydania">
+            <div class="drk-karta-naglowek">
+                <div class="drk-karta-tytul">
+                    <div class="drk-karta-ikona"><i class="fas fa-box-open" aria-hidden="true"></i></div>
+                    <div>
+                        <h3 id="drk-tytul-wydania">Wydania</h3>
+                        <p class="drk-karta-podtytul">Przy kilku aktywnych agent bierze najnowsze.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="drk-karta-tresc drk-karta-tresc--tabela">
+                <table class="drk-tabela drk-tabela--wydania">
+                    <thead><tr>
+                        <th class="drk-k-wersja-agenta">Wersja</th>
+                        <th class="drk-k-rozmiar drk-liczba">Rozmiar</th>
+                        <th class="drk-k-sha">SHA-256</th>
+                        <th class="drk-k-notatki">Co się zmieniło</th>
+                        <th class="drk-k-utworzono">Wgrano</th>
+                        <th class="drk-k-aktywne">Aktywne</th>
+                    </tr></thead>
+                    <tbody id="drk-wydania-lista">
+                        <tr class="drk-pusty"><td colspan="6" class="drk-pusto">Wczytywanie…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- ═══════════════ STARY AGENT (admin) ═══════════════ -->
+    <!-- Karta „Drukarka etykiet” przeniesiona z Konfiguracji bez zmian w działaniu (zapis: POST /production/api/update-configs),
+         bez przesunięć — te edytuje tylko formularz „Konfiguracja agenta”. Zostaje do wycofania starego agenta. -->
+    <div class="drk-pane" id="drk-panel-stary" role="tabpanel" aria-labelledby="drk-sub-stary" hidden>
+        <div class="drk-header">
+            <h2><i class="fas fa-history"></i>Stary agent</h2>
+            <p>Ustawienia starego agenta druku i trybu bez agenta (połączenie TCP prosto z serwera). Dotyczą drukarek,
+                które w Przeglądzie mają „Obsługuje: stary agent”.</p>
+        </div>
+
+        <div class="config-card drk-karta-stary" id="drk-karta-stary-ustawienia">
+            <div class="config-card-header">
+                <div class="config-card-title">
+                    <div class="config-card-icon">
+                        <i class="fas fa-print"></i>
+                    </div>
+                    <div>
+                        <h4>Drukarka etykiet</h4>
+                        <p class="config-card-subtitle">Etykiety produktów (Xprinter XP-423B, ZPL): połączenie bezpośrednie i stary agent druku</p>
+                    </div>
+                </div>
+            </div>
+            <div class="config-card-body">
+
+                <div class="config-drukarka-naglowek">
+                    <strong>Połączenie bezpośrednie</strong>
+                    <span>Dotyczy trybu bez agenta druku. Przy agencie druku adres, port, timeout i ponowienia nie są używane.</span>
+                </div>
+
+                <!-- LABEL_PRINTER_IP -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon"><i class="fas fa-network-wired"></i></div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title"><label for="label_printer_ip">Adres IP drukarki</label> <span class="default-badge">domyślnie: 192.168.100.199</span></h5>
+                                    <p class="config-item-description">Adres drukarki etykiet w sieci hali (tryb bez agenta)</p>
+                                </div>
+                            </div>
+                            {{ meta_zmiany(stary.LABEL_PRINTER_IP) }}
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control drk-ust" id="label_printer_ip" data-klucz="LABEL_PRINTER_IP"
+                                           data-typ="tekst" data-domyslna="{{ stary.LABEL_PRINTER_IP.domyslna }}"
+                                           value="{{ stary.LABEL_PRINTER_IP.wartosc }}" placeholder="192.168.100.199">
+                                </div>
+                                {{ reset('LABEL_PRINTER_IP', stary.LABEL_PRINTER_IP) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_PORT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon"><i class="fas fa-plug"></i></div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title"><label for="label_printer_port">Port drukarki</label> <span class="default-badge">domyślnie: 9100</span></h5>
+                                    <p class="config-item-description">Port TCP drukarki (RAW, zwykle 9100)</p>
+                                </div>
+                            </div>
+                            {{ meta_zmiany(stary.LABEL_PRINTER_PORT) }}
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control drk-ust" id="label_printer_port" data-klucz="LABEL_PRINTER_PORT"
+                                           data-typ="liczba" data-domyslna="{{ stary.LABEL_PRINTER_PORT.domyslna }}"
+                                           value="{{ stary.LABEL_PRINTER_PORT.wartosc }}" min="1" max="65535">
+                                </div>
+                                {{ reset('LABEL_PRINTER_PORT', stary.LABEL_PRINTER_PORT) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_TIMEOUT_SECONDS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon"><i class="fas fa-hourglass-half"></i></div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title"><label for="label_printer_timeout">Timeout połączenia (s)</label> <span class="default-badge">domyślnie: 3</span></h5>
+                                    <p class="config-item-description">Ile sekund serwer czeka na drukarkę w trybie bez agenta</p>
+                                </div>
+                            </div>
+                            {{ meta_zmiany(stary.LABEL_PRINTER_TIMEOUT_SECONDS) }}
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control drk-ust" id="label_printer_timeout" data-klucz="LABEL_PRINTER_TIMEOUT_SECONDS"
+                                           data-typ="liczba" data-domyslna="{{ stary.LABEL_PRINTER_TIMEOUT_SECONDS.domyslna }}"
+                                           value="{{ stary.LABEL_PRINTER_TIMEOUT_SECONDS.wartosc }}" min="1">
+                                </div>
+                                {{ reset('LABEL_PRINTER_TIMEOUT_SECONDS', stary.LABEL_PRINTER_TIMEOUT_SECONDS) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_RETRY_COUNT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon"><i class="fas fa-redo"></i></div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title"><label for="label_printer_retry">Liczba ponowień</label> <span class="default-badge">domyślnie: 1</span></h5>
+                                    <p class="config-item-description">Ile razy serwer ponawia wysyłkę po nieudanym połączeniu</p>
+                                </div>
+                            </div>
+                            {{ meta_zmiany(stary.LABEL_PRINTER_RETRY_COUNT) }}
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="number" class="form-control drk-ust" id="label_printer_retry" data-klucz="LABEL_PRINTER_RETRY_COUNT"
+                                           data-typ="liczba" data-domyslna="{{ stary.LABEL_PRINTER_RETRY_COUNT.domyslna }}"
+                                           value="{{ stary.LABEL_PRINTER_RETRY_COUNT.wartosc }}" min="0">
+                                </div>
+                                {{ reset('LABEL_PRINTER_RETRY_COUNT', stary.LABEL_PRINTER_RETRY_COUNT) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_ALLOWED_STATIONS -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon"><i class="fas fa-list-check"></i></div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title"><label for="label_printer_allowed_stations">Stanowiska uprawnione</label> <span class="default-badge">domyślnie: formatting,packaging</span></h5>
+                                    <p class="config-item-description">Lista CSV technicznych kodów stanowisk (oddzielone przecinkami) — muszą zgadzać się z station_code w prod_devices/JWT</p>
+                                </div>
+                            </div>
+                            {{ meta_zmiany(stary.LABEL_PRINTER_ALLOWED_STATIONS) }}
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control drk-ust" id="label_printer_allowed_stations" data-klucz="LABEL_PRINTER_ALLOWED_STATIONS"
+                                           data-typ="tekst" data-domyslna="{{ stary.LABEL_PRINTER_ALLOWED_STATIONS.domyslna }}"
+                                           value="{{ stary.LABEL_PRINTER_ALLOWED_STATIONS.wartosc }}" placeholder="formatting,packaging">
+                                </div>
+                                {{ reset('LABEL_PRINTER_ALLOWED_STATIONS', stary.LABEL_PRINTER_ALLOWED_STATIONS) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="config-drukarka-naglowek">
+                    <strong>Stary agent druku — wspólne dla obu drukarek</strong>
+                </div>
+
+                <!-- LABEL_PRINTER_USE_AGENT -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title"><label for="label_printer_use_agent">Tryb drukowania</label> <span class="default-badge">domyślnie: false (TCP direct)</span></h5>
+                                    <p class="config-item-description">false = bezpośrednio TCP do drukarki (dev), true = przez kolejkę i agenta druku (prod)</p>
+                                </div>
+                            </div>
+                            {{ meta_zmiany(stary.LABEL_PRINTER_USE_AGENT) }}
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    {% set przez_agenta = stary.LABEL_PRINTER_USE_AGENT.wartosc|lower in ['true', '1', 'yes', 'on'] %}
+                                    <select class="form-control drk-ust" id="label_printer_use_agent" data-klucz="LABEL_PRINTER_USE_AGENT"
+                                            data-typ="tekst" data-domyslna="{{ stary.LABEL_PRINTER_USE_AGENT.domyslna }}">
+                                        <option value="false" {% if not przez_agenta %}selected{% endif %}>false (TCP direct)</option>
+                                        <option value="true" {% if przez_agenta %}selected{% endif %}>true (przez agent)</option>
+                                    </select>
+                                </div>
+                                {{ reset('LABEL_PRINTER_USE_AGENT', stary.LABEL_PRINTER_USE_AGENT) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LABEL_PRINTER_AGENT_TOKEN -->
+                <div class="config-item">
+                    <div class="config-item-row">
+                        <div class="config-item-main">
+                            <div class="config-item-header">
+                                <div class="config-item-icon"><i class="fas fa-key"></i></div>
+                                <div class="config-item-info">
+                                    <h5 class="config-item-title"><label for="label_printer_agent_token">Token starego agenta</label></h5>
+                                    <p class="config-item-description">Bearer token, którym stary agent druku łączy się z serwerem (Authorization: Bearer ...). Losowy ciąg 32+ znaków. Nowy agent ma własny token z „Agenci i wydania”.</p>
+                                </div>
+                            </div>
+                            {{ meta_zmiany(stary.LABEL_PRINTER_AGENT_TOKEN) }}
+                        </div>
+                        <div class="config-item-controls">
+                            <div class="config-control-wrapper">
+                                <div class="config-control">
+                                    <input type="text" class="form-control drk-ust" id="label_printer_agent_token" data-klucz="LABEL_PRINTER_AGENT_TOKEN"
+                                           data-typ="tekst" value="{{ stary.LABEL_PRINTER_AGENT_TOKEN.wartosc }}"
+                                           placeholder="np. losowy ciąg 32+ znaków" autocomplete="off" spellcheck="false">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="drk-zapis" id="drk-stary-zapis" hidden>
+                    <span class="drk-zapis-tekst" id="drk-stary-zapis-tekst"></span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm drk-btn" id="drk-stary-cofnij">Cofnij zmiany</button>
+                    <button type="button" class="btn btn-primary btn-sm drk-btn" id="drk-stary-zapisz">
+                        <i class="fas fa-save me-1" aria-hidden="true"></i>Zapisz zmiany</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Okno: dodanie agenta (nazwa) -->
+    <div class="modal fade" id="drk-modal-agent" tabindex="-1" aria-labelledby="drk-modal-agent-tytul" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title" id="drk-modal-agent-tytul">Dodaj agenta druku</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button></div>
+                <div class="modal-body">
+                    <label class="form-label" for="drk-agent-nazwa">Nazwa agenta</label>
+                    <input type="text" class="form-control" id="drk-agent-nazwa" maxlength="100" placeholder="np. Komputer hali">
+                    <div class="alert alert-danger mt-3 mb-0 d-none" id="drk-agent-blad"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-primary" id="drk-agent-ok">Dodaj i pokaż token</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Okno: token pokazany jeden raz. Pole czyszczone przy zamknięciu okna, skrypt go nie przechowuje. -->
+    <div class="modal fade" id="drk-modal-token" tabindex="-1" aria-labelledby="drk-modal-token-tytul" aria-hidden="true"
+         data-bs-backdrop="static">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title" id="drk-modal-token-tytul">Token agenta</h5></div>
+                <div class="modal-body">
+                    <p class="mb-2" id="drk-token-opis"></p>
+                    <div class="drk-token-rzad">
+                        <input type="text" class="form-control drk-token" id="drk-token" readonly aria-label="Token agenta"
+                               autocomplete="off" spellcheck="false">
+                        <button type="button" class="btn btn-outline-primary drk-btn" id="drk-token-kopiuj">
+                            <i class="fas fa-copy me-1" aria-hidden="true"></i>Kopiuj</button>
+                    </div>
+                    <div class="alert alert-warning mt-3 mb-0">
+                        <i class="fas fa-exclamation-triangle me-1" aria-hidden="true"></i>
+                        Skopiuj token teraz. Po zamknięciu tego okna nie pokażemy go ponownie — zgubiony token zastąpisz
+                        przyciskiem „Nowy token”.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Skopiowałem, zamknij</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Okno: przełączenie obsługi drukarki między starym a nowym agentem -->
+    <div class="modal fade" id="drk-modal-obsluga" tabindex="-1" aria-labelledby="drk-modal-obsluga-tytul" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title" id="drk-modal-obsluga-tytul">Zmień agenta drukarki</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zamknij"></button></div>
+                <div class="modal-body">
+                    <p id="drk-obsluga-tekst"></p>
+                    <div class="alert alert-danger mb-0 d-none" id="drk-obsluga-blad"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Anuluj</button>
+                    <button type="button" class="btn btn-primary" id="drk-obsluga-ok">Przełącz</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    // Treść zakładki przychodzi przez innerHTML; ten skrypt odpala executeInlineScripts() z production-app-loader.js.
+    if (window.DrukarkiTab) window.DrukarkiTab.init(document.getElementById('drk-root'));
+</script>

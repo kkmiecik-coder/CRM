@@ -11,7 +11,6 @@ from migrations.migration_service import MigrationService
 from modules.production.models import LabelPrintJob, ProductionConfig
 from modules.production.services import print_queue_service as pqs
 from modules.production.services.config_service import get_config_service
-from modules.production.services.package_label import wczytaj_przesuniecie
 from tests.druk_fixtures import app  # noqa: F401
 
 KLUCZE_PRZESUNIECIA = ('PACKAGE_LABEL_OFFSET_X_DOTS', 'PACKAGE_LABEL_OFFSET_Y_DOTS')
@@ -181,43 +180,20 @@ def test_walidacja_przesuniecia(app, klucz, z_wierszem):
         assert serwis.validate_config_batch({klucz: wartosc})['invalid'] != [], repr(wartosc)
 
 
-@pytest.mark.parametrize('z_wierszem', [False, True], ids=['bez_wiersza', 'z_wierszem'])
-@pytest.mark.parametrize('wartosc', [121, -121, '500', 'abc'])
-def test_panel_odrzuca_przesuniecie_poza_zakresem(panel, wartosc, z_wierszem):
-    if z_wierszem:
-        _zaloz_klucze_przesuniecia()
-    _zaloguj(panel, '1')
-    resp = panel.post('/production/api/update-configs',
-                      json={'configs': {'PACKAGE_LABEL_OFFSET_Y_DOTS': wartosc}},
-                      headers=NAGLOWEK_AJAX)
-    assert resp.status_code == 400 and resp.get_json()['validation_errors']
-    wiersze = ProductionConfig.query.filter_by(config_key='PACKAGE_LABEL_OFFSET_Y_DOTS').all()
-    assert [w.config_value for w in wiersze] == (['0'] if z_wierszem else [])   # nic nie zapisane
-
-
-def test_panel_zapisuje_przesuniecie(panel):
+@pytest.mark.parametrize('klucz', ['PACKAGE_LABEL_OFFSET_X_DOTS', 'PACKAGE_LABEL_OFFSET_Y_DOTS',
+                                   'LABEL_PRINTER_OFFSET_LT', 'LABEL_PRINTER_OFFSET_LS'])
+def test_panel_nie_zapisuje_przesuniec_starymi_drogami(panel, klucz):
+    """Przesunięcia zapisuje tylko dokument konfiguracji agenta (zakładka Drukarki) — jedna droga zapisu."""
     _zaloz_klucze_przesuniecia()
     _zaloguj(panel, '1')
-    # Endpoint wymaga nagłówka XMLHttpRequest (ochrona CSRF) — panel zawsze go wysyła.
-    resp = panel.post('/production/api/update-configs',
-                      json={'configs': {'PACKAGE_LABEL_OFFSET_Y_DOTS': -8}},
-                      headers=NAGLOWEK_AJAX)
-    assert resp.status_code == 200 and resp.get_json()['success'] is True
-    db.session.rollback()          # zapis musi być zatwierdzony, nie tylko widoczny w sesji
-    wiersz = ProductionConfig.query.filter_by(config_key='PACKAGE_LABEL_OFFSET_Y_DOTS').one()
-    assert wiersz.config_value == '-8'
-
-
-def test_panel_zapisuje_przesuniecie_podane_jako_tekst(panel):
-    """Pole tekstowe może przysłać "-8" — ma się zapisać jako -8 i dać się odczytać przy druku."""
-    _zaloz_klucze_przesuniecia()
-    _zaloguj(panel, '1')
-    resp = panel.post('/production/api/update-configs',
-                      json={'configs': {'PACKAGE_LABEL_OFFSET_Y_DOTS': '-8'}},
-                      headers=NAGLOWEK_AJAX)
-    assert resp.status_code == 200 and resp.get_json()['success'] is True
+    wiele = panel.post('/production/api/update-configs', json={'configs': {klucz: -8}}, headers=NAGLOWEK_AJAX)
+    jeden = panel.post('/production/api/update-config', json={'config_key': klucz, 'config_value': -8,
+                                                              'config_type': 'integer'})
+    for resp in (wiele, jeden):
+        assert resp.status_code == 400 and resp.get_json()['success'] is False
+        assert 'drukarki/konfiguracja' in resp.get_json()['error']
     db.session.rollback()
-    assert wczytaj_przesuniecie() == (0, -8)
+    assert '-8' not in [w.config_value for w in ProductionConfig.query.filter_by(config_key=klucz).all()]
 
 
 def test_migracja_kluczy_przesuniecia():

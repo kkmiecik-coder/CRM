@@ -1,0 +1,8 @@
+# Środowisko budowania i wyniki budowania — nigdy w repo.
+.venv/
+packaging/vendor/
+packaging/build/
+packaging/dist/
+packaging/wynik/
+# Plik PyInstallera jest źródłem (główny .gitignore ignoruje *.spec).
+!packaging/agent_druku.spec

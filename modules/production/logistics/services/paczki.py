@@ -229,17 +229,20 @@ def opis_paczek(lista):
 def uniewaznij(lista, teraz, powod=u'nowa deklaracja paczek'):
     """
     Unieważnia paczki (wiersze zostają — skan starej etykiety ma dostać „nieaktualna”) i
-    w tej samej transakcji wygasza ich oczekujące zadania druku (`pending` → `expired`).
+    w tej samej transakcji wygasza ich oczekujące zadania druku (`pending` i `claimed` → `expired`).
     Agent druku pobiera właśnie `pending`, więc bez tego etykiety starych paczek wyszłyby
-    na drukarkę obok nowych (np. po przerwie w pracy agenta). Zadań `printed` i `failed`
-    nie ruszamy; zadanie już przekazane do spoolera Windows jest poza zasięgiem CRM.
+    na drukarkę obok nowych (np. po przerwie w pracy agenta). `claimed` (agent v2 pobrał, ale jeszcze
+    nie zaczął wysyłać — np. budzi uśpioną drukarkę) też gasimy: jego „wysyłam” jest warunkowe po
+    `claimed`, więc dostanie 409 i etykiety nie wyśle, a późne „niewyslane” niczego nie zmieni.
+    Zadań `sending`, `printed` i `failed` nie ruszamy; zadanie już przekazane do spoolera Windows
+    albo do drukarki jest poza zasięgiem CRM.
     `powod` trafia do komunikatu wygaszonego zadania. Zwraca liczbę unieważnionych paczek.
     """
     for p in lista:
         p.voided_at = teraz
     if lista:
         (LabelPrintJob.query
-         .filter(LabelPrintJob.status == LabelPrintJob.STATUS_PENDING,
+         .filter(LabelPrintJob.status.in_((LabelPrintJob.STATUS_PENDING, LabelPrintJob.STATUS_CLAIMED)),
                  LabelPrintJob.package_id.in_([p.id for p in lista]))
          .update({'status': LabelPrintJob.STATUS_EXPIRED,
                   'error_message': u'Paczka unieważniona — {}'.format(powod)},

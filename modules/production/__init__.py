@@ -75,6 +75,12 @@ try:
 except ImportError as e:
     logger.error(f"Nie można zaimportować modeli priorytetów produkcji: {e}")
 
+# Modele agenta druku v2 (prod_print_agents itd.) — jak wyżej: bez nich create_all nie założy tabel.
+try:
+    from .drukarki import models as _drukarki_models  # noqa: F401
+except ImportError as e:
+    logger.error(f"Nie można zaimportować modeli agenta druku: {e}")
+
 # Middleware zabezpieczeń IP (będzie dodane wraz z security_service)
 try:
     from .services.security_service import ip_security_middleware

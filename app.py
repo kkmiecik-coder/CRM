@@ -877,6 +877,9 @@ def create_app():
         from modules.production.sawmill import sawmill_mobile_bp, sawmill_panel_bp
         app.register_blueprint(sawmill_mobile_bp, url_prefix='/api/mobile/sawmill')
         app.register_blueprint(sawmill_panel_bp, url_prefix='/production/api/sawmill')
+        # Agent druku v2: stan drukarek dla tabletów stanowisk.
+        from modules.production.drukarki.routers.mobile_api import drukarki_mobile_bp
+        app.register_blueprint(drukarki_mobile_bp, url_prefix='/api/mobile/printers')
         # Logistyka etap 4, krok 4.3: telefon Weryfikacji.
         from modules.production.logistics.routers.weryfikacja_api import weryfikacja_mobile_bp
         app.register_blueprint(weryfikacja_mobile_bp, url_prefix='/api/mobile/verification')
@@ -894,7 +897,13 @@ def create_app():
         # Urządzenia mobilne (spec 2026-10-12): prośby o dostęp, urządzenia, wydania APK.
         from modules.production.routers.devices_panel import devices_panel_bp
         app.register_blueprint(devices_panel_bp, url_prefix='/production/api/devices')
+        # Zakładka „Drukarki” (agent druku v2): stan, kolejka, parowanie, konfiguracja, wydania.
+        from modules.production.drukarki.routers.panel_api import drukarki_panel_bp
+        app.register_blueprint(drukarki_panel_bp, url_prefix='/production/api/drukarki')
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
+        # Agent druku v2 (nowy agent Windows); stary agent działa dalej na print_agent_bp.
+        from modules.production.drukarki.routers.agent_api import agent_druku_v2_bp
+        app.register_blueprint(agent_druku_v2_bp, url_prefix='/api/print-agent/v2')
         app.register_blueprint(production_display_bp, url_prefix='/production')
         app.register_blueprint(partner_academy_bp, url_prefix='/partner-academy')
         app.register_blueprint(users_bp)
