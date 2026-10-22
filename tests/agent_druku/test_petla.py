@@ -311,6 +311,38 @@ def test_poza_godzinami_tylko_kontakt(srodowisko):
     assert s.crm.nazwy() == ['wyniki', 'kontakt', 'kontakt']
 
 
+def test_poza_godzinami_zmiana_z_okienka_idzie_do_crm(srodowisko):
+    """Hub 22.10.2026: zmiana konfiguracji w okienku po godzinach czekała do rana."""
+    s = srodowisko
+    s.zegar.chwila = NOC
+    agent = s.nowy_agent()
+    agent.lokalna.zapisz_lokalnie(dict(KONFIGURACJA))
+    agent.cykl('konfiguracja')
+    assert 'zapisz_konfiguracje' in s.crm.nazwy()
+    assert agent.lokalna.oczekujaca is None
+    assert 'pobierz' not in s.crm.nazwy()
+
+
+def test_poza_godzinami_nowsza_konfiguracja_z_crm(srodowisko):
+    """Po parowaniu albo zmianie w CRM po godzinach agent pobiera konfigurację od razu, nie rano."""
+    s = srodowisko
+    s.zegar.chwila = NOC
+    agent = s.nowy_agent()
+    s.crm.wersja_konf = 2
+    agent.cykl('polling')
+    assert s.crm.nazwy() == ['kontakt', 'konfiguracja']
+    assert agent.lokalna.wersja == 2
+    assert 'pobierz' not in s.crm.nazwy()
+
+
+def test_poza_godzinami_parowanie_synchronizuje(srodowisko):
+    s = srodowisko
+    s.zegar.chwila = NOC
+    agent = s.nowy_agent()
+    agent.cykl('parowanie')
+    assert s.crm.nazwy()[:2] == ['konfiguracja', 'kontakt']
+
+
 def test_niedziela_poza_godzinami(srodowisko):
     s = srodowisko
     s.zegar.chwila = datetime(2026, 10, 25, 10, 0)   # niedziela

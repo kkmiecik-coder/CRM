@@ -816,7 +816,7 @@ class Zasobnik:
         f = self.zakladka_par
         self.stan_parowania = self._etykieta(f, '', 11, 'bold')
         self.stan_parowania.pack(fill='x', pady=(0, 8))
-        self._etykieta(f, 'W CRM otwórz Produkcja → Stanowiska → Drukarki i kliknij „Dodaj agenta”. '
+        self._etykieta(f, 'W CRM otwórz Produkcja → Drukarki → Agenci i kliknij „Dodaj agenta”. '
                           'Skopiuj token i wklej go poniżej — CRM pokazuje go tylko raz. Adres CRM '
                           'ustawił instalator; inny serwer wymaga ponownej instalacji agenta.',
                        10, kolor=SZARY, wraplength=480).pack(fill='x', pady=(0, 10))

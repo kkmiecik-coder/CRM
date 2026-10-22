@@ -20,6 +20,9 @@ MAKS_PORCJI = 20
 POLLING_Z_PUSHEM_S = 60
 POLLING_BEZ_PUSHU_S = 10
 KONTAKT_POZA_GODZINAMI_S = 60
+# Powody cyklu, przy których poza godzinami pracy synchronizujemy konfigurację od razu (zmiana w okienku,
+# parowanie), zamiast czekać, aż /kontakt pokaże nowszą wersję w CRM.
+POWODY_SYNCHRONIZACJI = ('konfiguracja', 'parowanie', 'start')
 CISZA_CRM_S = 120   # jak drukarki.stale.AGENT_CISZA_S po stronie serwera
 # Cykl „po (ponownym) połączeniu push” najwyżej raz na tyle sekund — kanał, który łączy się i zrywa,
 # nie może zasypywać CRM pełnymi cyklami.
@@ -236,16 +239,25 @@ class Agent:
                 self._okno_pracy = _okno_dzis(dane.get('godziny'), teraz)
                 self._porcja_odrzucona = False
                 ostatnia = self._ostatnia_proba_kontaktu
-            # Poza godzinami bez nowych zadań, ale zaległe wyniki idą od razu.
+            # Poza godzinami bez nowych zadań, ale zaległe wyniki idą od razu, a konfiguracja synchronizuje się
+            # jak w pracy: zmiana z okienka trafia do CRM, a zmiana z CRM (albo pierwsze parowanie) do agenta
+            # — bez tego agent sparowany po południu nie znał drukarek ani przesunięć do rana (hub, 22.10.2026).
             zalegle = bool(self.dziennik.niepotwierdzone())
             kontakt = ostatnia is None or self.zegar.monotonic() - ostatnia >= KONTAKT_POZA_GODZINAMI_S
-            if not (zalegle or kontakt):
+            synchronizacja = (self.lokalna.oczekujaca is not None
+                              or powod in POWODY_SYNCHRONIZACJI or powod.startswith('push-config'))
+            if not (zalegle or kontakt or synchronizacja):
                 return
             try:
                 if zalegle:
                     self._wyslij_zalegle()
+                if synchronizacja:
+                    self._synchronizuj()
                 if kontakt:
-                    self._kontakt()
+                    odp = self._kontakt()
+                    if (odp is not None and not synchronizacja
+                            and odp.get('wersja_konfiguracji') != self.lokalna.wersja):
+                        self._synchronizuj()
             except NieznanyAgent:
                 self._oznacz_nieznany()
             self._opublikuj_bledy()
