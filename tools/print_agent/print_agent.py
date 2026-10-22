@@ -685,14 +685,51 @@ def _describe_timing(signal_at, requested_at_iso):
 
 
 # === Printer (TCP albo kolejka Windows) ===
+#
+# Budzenie drukarki. XP-410B (paczki) usypia moduł sieciowy po bezczynności:
+# pierwsze połączenie po przerwie kończy się timeoutem, następne przechodzą od
+# razu (diagnoza 22.10.2026, log huba 8–22.10: ~12 etykiet dziennie oznaczonych
+# jako nieudane właśnie w ten sposób). Dlatego łączymy się kilka razy krótkimi
+# próbami, zanim uznamy drukarkę za niedostępną.
+BUDZENIE_PROBA_SEKUNDY = 3
+BUDZENIE_ODSTEP_SEKUNDY = 1
+BUDZENIE_LIMIT_SEKUNDY = 20
+
+
+class DrukarkaNiedostepna(OSError):
+    """Nie udało się nawiązać połączenia z drukarką — nie wysłano ANI BAJTU.
+    Zadanie nie jest wtedy nieudane: zostaje w kolejce (bez ACK) i pójdzie
+    w następnym cyklu, zamiast przepaść jako `failed`."""
+
+
+def _polacz_z_budzeniem(drukarka):
+    koniec = time.monotonic() + BUDZENIE_LIMIT_SEKUNDY
+    proba = 0
+    while True:
+        proba += 1
+        try:
+            sock = socket.create_connection((drukarka['ip'], drukarka['port']),
+                                            timeout=BUDZENIE_PROBA_SEKUNDY)
+        except OSError as e:
+            if time.monotonic() + BUDZENIE_ODSTEP_SEKUNDY >= koniec:
+                raise DrukarkaNiedostepna(
+                    f"drukarka nie odpowiada na połączenie ({proba} prób w {BUDZENIE_LIMIT_SEKUNDY} s): {e}") from e
+            time.sleep(BUDZENIE_ODSTEP_SEKUNDY)
+            continue
+        if proba > 1:
+            info(f"[{drukarka.get('nazwa', '?')}] Drukarka obudzona za {proba}. próbą połączenia")
+        return sock
+
+
 def wyslij_surowe(drukarka, dane):
     """Surowe bajty (ZPL/TSPL) do drukarki. Każdy błąd to OSError — pętla druku
-    traktuje obie drogi tak samo."""
+    traktuje obie drogi tak samo. DrukarkaNiedostepna (podklasa OSError) = nie
+    wysłano nic, bo połączenie nie doszło do skutku mimo budzenia."""
     if drukarka['type'] == 'windows':
         _drukuj_przez_windows(drukarka['name'], dane)
         return
-    with socket.create_connection((drukarka['ip'], drukarka['port']),
-                                  timeout=drukarka['timeout']) as sock:
+    with _polacz_z_budzeniem(drukarka) as sock:
+        sock.settimeout(drukarka['timeout'])
         sock.sendall(dane)
 
 
@@ -921,6 +958,13 @@ def _process_one_batch(cfg, nazwa, drukarka, signal_at=None, stan=None):
             send_to_printer(drukarka, j['zpl_payload'])
             ok(f"  ✓ [{nazwa}] id={j['id']} short={j['short_product_id']}{timing}")
             results.append({'id': j['id'], 'success': True})
+        except DrukarkaNiedostepna as e:
+            # Nie wysłano ani bajtu — zadanie zostaje `pending` (bez ACK) i pójdzie
+            # następnym cyklem. Dawniej szło jako `failed`, czyli przepadało na
+            # zawsze razem ze znacznikiem wydruku paczki.
+            err(f"  ✗ [{nazwa}] id={j['id']} short={j['short_product_id']}{timing} ({e}) — zostaje w kolejce")
+            log_error(f"Drukarka [{nazwa}] niedostępna, id={j['id']} zostaje w kolejce{timing}: {e}", exc=e)
+            drukarka_padla = True
         except (socket.timeout, ConnectionRefusedError, OSError) as e:
             err(f"  ✗ [{nazwa}] id={j['id']} short={j['short_product_id']}{timing} ({e})")
             log_error(f"Drukowanie [{nazwa}] id={j['id']} nieudane{timing}: {e}", exc=e)
@@ -931,13 +975,14 @@ def _process_one_batch(cfg, nazwa, drukarka, signal_at=None, stan=None):
             # zasilania, a operator przy maszynie potrzebuje właśnie tego.
             log_printer_status(drukarka)
 
-    try:
-        resp = ack_jobs(cfg, results)
-        success_count = sum(1 for r in results if r['success'])
-        ok(f"[{nazwa}] ACK: {success_count}/{len(results)} OK (server updated={resp.get('updated', '?')})")
-    except (URLError, HTTPError, TimeoutError, OSError) as e:
-        log_error(f"Nie udało się wysłać ACK: {e}", exc=e)
-        return 'error'
+    if results:
+        try:
+            resp = ack_jobs(cfg, results)
+            success_count = sum(1 for r in results if r['success'])
+            ok(f"[{nazwa}] ACK: {success_count}/{len(results)} OK (server updated={resp.get('updated', '?')})")
+        except (URLError, HTTPError, TimeoutError, OSError) as e:
+            log_error(f"Nie udało się wysłać ACK: {e}", exc=e)
+            return 'error'
 
     # Po resztę wracamy TYLKO wtedy, gdy porcja była pełna I cała się wydrukowała.
     #
@@ -948,7 +993,7 @@ def _process_one_batch(cfg, nazwa, drukarka, signal_at=None, stan=None):
     # kilkanaście minut blokady i 50 spalonych etykiet). Zatrzymujemy się na
     # pierwszej porcji z błędem: operator zdąży zauważyć problem z drukarką,
     # a reszta zadań zostaje w kolejce jako `pending`.
-    if success_count < len(results):
+    if drukarka_padla:
         warn(f"[{nazwa}] Drukarka nie przyjęła części etykiet — przerywam opróżnianie kolejki")
         if stan is not None:
             stan['drukarka_padla'] = True

@@ -273,6 +273,9 @@ def test_tcp_laczy_sie_z_ip_portem_i_timeoutem_drukarki(monkeypatch):
         def __exit__(self, *wyjatek):
             return False
 
+        def settimeout(self, t):
+            wywolania.append(('wysylanie', t))
+
         def sendall(self, dane):
             wyslane.append(dane)
 
@@ -284,8 +287,112 @@ def test_tcp_laczy_sie_z_ip_portem_i_timeoutem_drukarki(monkeypatch):
     drukarka = {'nazwa': 'wysylka', 'type': 'tcp', 'ip': '10.0.0.7', 'port': 9101, 'timeout': 7}
     print_agent.send_to_printer(drukarka, '^XA^XZ')
     print_agent.wyslij_surowe(drukarka, b'GAPDETECT\r\n')
-    assert wywolania == [(('10.0.0.7', 9101), 7), (('10.0.0.7', 9101), 7)]
+    proba = print_agent.BUDZENIE_PROBA_SEKUNDY
+    assert wywolania == [(('10.0.0.7', 9101), proba), ('wysylanie', 7),
+                         (('10.0.0.7', 9101), proba), ('wysylanie', 7)]
     assert wyslane == [b'^XA^XZ', b'GAPDETECT\r\n']
+
+
+class _ZegarTestowy:
+    """Podmiana time.monotonic/time.sleep: sleep przesuwa zegar zamiast czekać."""
+    def __init__(self):
+        self.teraz = 1000.0
+
+    def monotonic(self):
+        return self.teraz
+
+    def sleep(self, s):
+        self.teraz += s
+
+
+def test_uspiona_drukarka_budzi_sie_kolejna_proba(monkeypatch):
+    """XP-410B po bezczynności nie przyjmuje pierwszego połączenia (diagnoza 22.10.2026)
+    — agent ponawia i drukuje, zamiast oznaczać etykietę jako nieudaną."""
+    zegar, proby, wyslane = _ZegarTestowy(), [], []
+
+    class _Gniazdo:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *wyjatek):
+            return False
+
+        def settimeout(self, t):
+            pass
+
+        def sendall(self, dane):
+            wyslane.append(dane)
+
+    def polacz(adres, timeout=None):
+        proby.append(adres)
+        if len(proby) < 3:
+            zegar.teraz += timeout
+            raise OSError('timed out')
+        return _Gniazdo()
+
+    monkeypatch.setattr(print_agent.socket, 'create_connection', polacz)
+    monkeypatch.setattr(print_agent.time, 'monotonic', zegar.monotonic)
+    monkeypatch.setattr(print_agent.time, 'sleep', zegar.sleep)
+    print_agent.send_to_printer({'nazwa': 'wysylka', 'type': 'tcp', 'ip': '10.0.0.7', 'port': 9100,
+                                 'timeout': 15}, '^XA^XZ')
+    assert len(proby) == 3
+    assert wyslane == [b'^XA^XZ']
+
+
+def test_niedostepna_drukarka_po_limicie_budzenia(monkeypatch):
+    zegar, proby = _ZegarTestowy(), []
+
+    def polacz(adres, timeout=None):
+        proby.append(adres)
+        zegar.teraz += timeout
+        raise OSError('timed out')
+
+    monkeypatch.setattr(print_agent.socket, 'create_connection', polacz)
+    monkeypatch.setattr(print_agent.time, 'monotonic', zegar.monotonic)
+    monkeypatch.setattr(print_agent.time, 'sleep', zegar.sleep)
+    start = zegar.teraz
+    with pytest.raises(print_agent.DrukarkaNiedostepna):
+        print_agent.send_to_printer({'nazwa': 'wysylka', 'type': 'tcp', 'ip': '10.0.0.7', 'port': 9100,
+                                     'timeout': 15}, '^XA^XZ')
+    assert len(proby) > 1
+    assert zegar.teraz - start <= print_agent.BUDZENIE_LIMIT_SEKUNDY + print_agent.BUDZENIE_PROBA_SEKUNDY
+
+
+def test_niedostepna_drukarka_zostawia_zadania_w_kolejce(monkeypatch):
+    """Nie wysłano ani bajtu → bez ACK (zadanie zostaje pending), a nie `failed` na zawsze."""
+    potwierdzone = []
+
+    def druk(d, z):
+        raise print_agent.DrukarkaNiedostepna('drukarka nie odpowiada na połączenie')
+
+    monkeypatch.setattr(print_agent, 'fetch_jobs', lambda c, n: {'jobs': [_zadanie(1, 'wysylka'),
+                                                                          _zadanie(2, 'wysylka')]})
+    monkeypatch.setattr(print_agent, 'send_to_printer', druk)
+    monkeypatch.setattr(print_agent, 'log_printer_status', lambda d: pytest.fail('pytanie o stan martwej drukarki'))
+    monkeypatch.setattr(print_agent, 'ack_jobs', lambda c, r: (potwierdzone.extend(r), {'updated': len(r)})[1])
+    stan = {}
+    assert print_agent.run_once(_cfg(wysylka=TCP), stan=stan) is True
+    assert potwierdzone == []
+    assert stan.get('drukarka_padla') is True
+
+
+def test_drukarka_niedostepna_w_polowie_porcji(monkeypatch):
+    """Wydrukowane potwierdzamy, niewysłane zostają w kolejce."""
+    potwierdzone, wywolania = [], []
+
+    def druk(d, z):
+        wywolania.append(z)
+        if len(wywolania) > 1:
+            raise print_agent.DrukarkaNiedostepna('drukarka nie odpowiada na połączenie')
+
+    monkeypatch.setattr(print_agent, 'fetch_jobs', lambda c, n: {'jobs': [_zadanie(i, 'wysylka') for i in (1, 2, 3)]})
+    monkeypatch.setattr(print_agent, 'send_to_printer', druk)
+    monkeypatch.setattr(print_agent, 'ack_jobs', lambda c, r: (potwierdzone.extend(r), {'updated': len(r)})[1])
+    stan = {}
+    print_agent.run_once(_cfg(wysylka=TCP), stan=stan)
+    assert potwierdzone == [{'id': 1, 'success': True}]
+    assert len(wywolania) == 2, 'po niedostępnej drukarce nie dobijamy się resztą porcji'
+    assert stan.get('drukarka_padla') is True
 
 
 # --- kolejka Windows ---

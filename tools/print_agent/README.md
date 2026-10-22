@@ -163,6 +163,7 @@ XP-410B drukował ok. 6 mm za nisko.
   python print_agent.py --drukarka
   ```
   Wysyła komendy ZPL `~HQES` (błędy i ostrzeżenia), `~HS` (status) i `~HI` (model), i pokazuje surowe odpowiedzi. Uwaga: XP-423B ma emulację ZPL, nie oryginalny firmware Zebry, więc nie na wszystkie musi odpowiadać. Ale jeśli nie udaje się nawet **połączyć**, drukarka jest odcięta i to jest odpowiedź sama w sobie.
+- **"Drukarka obudzona za N. próbą połączenia"** — normalne dla XP-410B: po bezczynności usypia sieć i pierwsze połączenie nie przechodzi. Agent próbuje przez 20 s; dopiero gdy drukarka nie odpowie wcale, zostawia etykiety w kolejce (nie oznacza ich jako nieudanych) i wraca do nich co `interval_seconds`.
 - **"Brak kanału push — jadę na pollingu"** — etykiety nadal się drukują, tylko z opóźnieniem do 10 s. Przyczyny w kolejności prawdopodobieństwa: broker Centrifugo nie działa na serwerze, `REALTIME.enabled=false` w CRM, hub nie ma dostępu do `crm.woodpower.pl`. Sprawdzenie z huba:
   ```
   curl -i -H "Authorization: Bearer TWOJ_TOKEN" https://crm.woodpower.pl/api/print-agent/realtime-token
