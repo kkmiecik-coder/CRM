@@ -24,7 +24,8 @@ logger = get_structured_logger('production.priorytety.ustawienia')
 
 # Zakresy liczb przy ZAPISIE z panelu (spec 10; plan K2, Doprecyzowania p. 8). Odczyt toleruje szerzej (tylko
 # dolne granice), żeby ręcznie wpisana wartość nie wywróciła stanowiska.
-ZAKRES_MIEJSC = (1, 5)
+# Miejsca na stole bez górnej granicy (decyzja Konrada 22.10: hala chce więcej niż 5 kafli).
+ZAKRES_MIEJSC = (1, None)
 ZAKRES_LIMITU = (1, 50)
 ZAKRES_BLISKO = (0, 15)
 # Dni terminu nowych zamówień (plan K4b, Doprecyzowania 5; pole UI miało zawsze max 90).

@@ -495,7 +495,7 @@ ponad K stół wychodzi tylko przez kafle `biuro` („Wyślij na stanowisko”) 
 zamówieniami: na stół wchodzą zamówienia kompletne na stanowisku, niekompletne są w osobnej sekcji.
 
 **Ustawienia, bramka, wersja appki.** Klucze `prod_config` na stanowisko: `priorytety_tryb_<S>` (`stary` | `stol`),
-`priorytety_stol_<S>` (K miejsc, 1–5), `priorytety_jednostka_<S>` (`pozycja` | `zamowienie`),
+`priorytety_stol_<S>` (K miejsc, od 1, bez górnej granicy), `priorytety_jednostka_<S>` (`pozycja` | `zamowienie`),
 `priorytety_limit_odlozen_<S>`; wspólne: `priorytety_blisko_terminu_dni` (domyślnie 3 dni robocze) i
 `priorytety_min_app_version_code`. `ustawienia.*` czytają `prod_config` wprost, bez pamięci podręcznej
 `config_service` — zmiana działa od razu na wszystkich workerach (wyjątek: liczby dni terminu import z Base. czyta

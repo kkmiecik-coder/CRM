@@ -1267,6 +1267,14 @@ def test_ustawienia_zapis_czesciowy_i_log(client, szpieg_invalidate, utrwal_atra
     assert szpieg_invalidate == [1]
 
 
+def test_ustawienia_miejsca_bez_gornej_granicy(client, utrwal_atrapa):
+    """K nie ma górnej granicy (22.10) — dawne maksimum 5 już nie obowiązuje."""
+    r = client.put(BASE + '/ustawienia', json={'stanowiska': {'formatting': {'miejsca': 10}}})
+    assert r.status_code == 200, r.get_data()[:300]
+    assert r.get_json()['stanowiska']['formatting']['miejsca'] == 10
+    assert _wartosci_konfiguracji()['priorytety_stol_formatting'] == '10'
+
+
 def test_ustawienia_zapis_nadpisuje_wiersz_i_loguje_stara_wartosc(client, utrwal_atrapa):
     ustaw('priorytety_tryb_gluing', 'stary')
     ustaw('priorytety_min_app_version_code', '173', 'integer')   # stół wymaga progu wersji (K4-poprawka-1)
@@ -1291,7 +1299,6 @@ def test_ustawienia_walidacja_wszystko_albo_nic(client, utrwal_atrapa):
 
 @pytest.mark.parametrize('cialo, kod, pole', [
     ({'stanowiska': {'gluing': {'miejsca': 0}}}, 'ustawienie_niepoprawne', 'stanowiska.gluing.miejsca'),
-    ({'stanowiska': {'gluing': {'miejsca': 6}}}, 'ustawienie_niepoprawne', 'stanowiska.gluing.miejsca'),
     ({'stanowiska': {'gluing': {'miejsca': True}}}, 'ustawienie_niepoprawne', 'stanowiska.gluing.miejsca'),
     ({'stanowiska': {'gluing': {'miejsca': '2'}}}, 'ustawienie_niepoprawne', 'stanowiska.gluing.miejsca'),
     ({'stanowiska': {'gluing': {'limit_odlozen': 0}}}, 'ustawienie_niepoprawne', 'stanowiska.gluing.limit_odlozen'),
