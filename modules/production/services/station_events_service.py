@@ -173,10 +173,14 @@ def get_worker_station_work_in_range(station_code, range_start, range_end, worke
     }
 
 
-def srednie_tempo_stanowisk(dni=14, dzis=None):
+def srednie_tempo_stanowisk(dni=30, dzis=None):
     """
     {kod_stanowiska: m3_na_dzien} — średni dzienny przerób każdego stanowiska
     z ostatnich `dni` dni.
+
+    Okno 30 dni (dawniej 14, zmiana 2026-10-23): zamówienie surowe przechodzi
+    halę w ~14 dni, ale olejowane i lakierowane trwa dziś do 18 dni, więc
+    14-dniowe okno nie obejmowało pełnego cyklu produkcji.
 
     Służy do liczenia OBCIĄŻENIA: `m³ oczekujące / m3_na_dzien` mówi, ile dni
     pracy stoi przed stanowiskiem. To jedyna z prostych miar, która porządkuje

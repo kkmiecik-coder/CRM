@@ -2600,7 +2600,7 @@ body {
 
 /* ─── Obciążenie ───
    Ile DNI PRACY stoi przed stanowiskiem: kolejka w m³ przez średni dzienny
-   przerób z ostatnich 14 dni. Zastąpiło pasek „postępu dnia", który liczył
+   przerób z ostatnich 30 dni. Zastąpiło pasek „postępu dnia", który liczył
    ukończone / (oczekujące + ukończone) — ta miara miała ruchomy mianownik
    (stanowisko dostaje nowe pozycje z góry przez cały dzień) i rano zawsze
    pokazywała zero, niezależnie od kondycji hali.

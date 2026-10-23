@@ -154,6 +154,19 @@ def test_okno_odcina_starsze_dni(app):
     assert round(tempo['edges'], 3) == 3.0
 
 
+def test_domyslne_okno_to_30_dni(app):
+    """
+    Dashboard woła funkcję bez `dni`, więc to domyślne okno decyduje o kolumnie
+    „Obciążenie". Ma objąć pełny cykl zamówienia olejowanego i lakierowanego
+    (do 18 dni) — zdarzenie sprzed 25 dni się liczy, sprzed 40 już nie.
+    """
+    p = _produkt(volume=1.0)
+    _zdarzenie(p, 'edges', DZIS - timedelta(days=25))
+    _zdarzenie(p, 'edges', DZIS - timedelta(days=40), delta=10)
+
+    assert round(srednie_tempo_stanowisk(dzis=DZIS)['edges'], 3) == 1.0
+
+
 def test_cofniecie_sztuki_obniza_tempo(app):
     """
     delta bywa ujemna (cofnięcie sztuki ze stanowiska). Tempo liczy się
