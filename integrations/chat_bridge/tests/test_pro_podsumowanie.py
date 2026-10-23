@@ -1405,3 +1405,105 @@ class TestWyslijNieWysylaStanuSprzedZmiany:
 
         assert wynik["ok"] is True, wynik
         assert wyslane != []
+
+
+class TestCenaWObuTechnologiach:
+    """Decyzja właściciela 23.10.2026: „niech nie pyta ludzi »lity czy
+    mikrowczep«, niech pomija to pytanie i wycenia i to, i to".
+
+    Bot zapisuje wariant lity, a podsumowanie pokazuje cenę pozycji i sumę
+    w litym ORAZ w mikrowczepie tego samego gatunku i klasy — z tej samej
+    odpowiedzi kalkulatora (calculate_quote liczy wszystkie warianty)."""
+
+    @staticmethod
+    def _produkt(micro_dostepny=True, lity=600.0, micro=500.0):
+        warianty = [{"variant_code": "dab-lity-ab", "available": True,
+                     "price_per_m3": 8200.0, "unit_netto": lity / 1.23,
+                     "unit_brutto": lity, "total_netto": lity / 1.23, "total_brutto": lity},
+                    {"variant_code": "jes-lity-ab", "available": True,
+                     "unit_brutto": 999.0, "total_brutto": 999.0}]
+        warianty.append({"variant_code": "dab-micro-ab", "available": True,
+                         "unit_netto": micro / 1.23, "unit_brutto": micro,
+                         "total_netto": micro / 1.23, "total_brutto": micro}
+                        if micro_dostepny else
+                        {"variant_code": "dab-micro-ab", "available": False})
+        return {"index": 1, "errors": [], "variants": warianty,
+                "finishing": {"netto": 162.6, "brutto": 200.0},
+                "edges": {"netto": 34.99, "brutto": 43.04}}
+
+    def _przygotuj(self, monkeypatch, conv_id, produkty, totals):
+        stan.ustaw_kontekst(conv_id)
+        poz = [dict(_pozycja(), id=str(i + 1)) for i in range(len(produkty))]
+        monkeypatch.setattr(stan, "pozycje", lambda: poz)
+        monkeypatch.setattr(podsumowanie.crm_calc, "get_options", lambda: {})
+        monkeypatch.setattr(podsumowanie.crm_calc, "calculate", lambda p, o: {
+            "ok": True, "products": produkty, "totals": totals})
+        _zaladuj_atrape_wysylki(monkeypatch)
+        wyslane = []
+        monkeypatch.setattr(podsumowanie, "cw_agent_reply",
+                            lambda cid, tekst, token=None: wyslane.append(tekst) or True)
+        return poz, wyslane
+
+    _TOTALS = {"order_brutto": 600.0, "total_netto": 685.40, "total_brutto": 843.04}
+
+    def test_pozycja_i_suma_w_obu_technologiach(self, monkeypatch):
+        _, wyslane = self._przygotuj(monkeypatch, 94501, [self._produkt()], self._TOTALS)
+        assert podsumowanie.wyslij()["ok"] is True
+        tekst = wyslane[0]
+        # Technologia nie stoi w nazwie, tylko pod linią razem z ceną.
+        assert "blat Dąb A/B, 180x60x4 cm" in tekst
+        assert "Dąb lity A/B" not in tekst
+        # Cena pozycji = materiał wariantu + wykończenie + krawędzie.
+        assert "lity: 843,04 zł brutto" in tekst
+        assert "mikrowczep: 743,04 zł brutto" in tekst
+        assert "Razem za produkty (bez dostawy):" in tekst
+        # Inne gatunki z tabeli kalkulatora NIE trafiają do czatu.
+        assert "999" not in tekst
+
+    def test_ceny_obu_technologii_trafiaja_do_rejestru_g1(self, monkeypatch):
+        self._przygotuj(monkeypatch, 94502, [self._produkt()], self._TOTALS)
+        podsumowanie.wyslij()
+        znane = stan.znane_kwoty()
+        assert {"843.04", "743.04", "500.00", "600.00"} <= znane
+        assert "999.00" not in znane
+
+    def test_niedostepny_mikrowczep_jest_nazwany_a_suma_zostaje_jedna(self, monkeypatch):
+        _, wyslane = self._przygotuj(
+            monkeypatch, 94503, [self._produkt(micro_dostepny=False)], self._TOTALS)
+        assert podsumowanie.wyslij()["ok"] is True
+        tekst = wyslane[0]
+        assert "lity: 843,04 zł brutto" in tekst
+        assert "mikrowczep: niedostępny dla tych wymiarów" in tekst
+        assert "Razem za produkty (bez dostawy): 843,04 zł brutto" in tekst
+
+    def test_dostawa_doliczona_do_obu_sum(self, monkeypatch):
+        _, wyslane = self._przygotuj(monkeypatch, 94504, [self._produkt()], self._TOTALS)
+        stan.zapisz_dostawe("00-001", kurier="DPD", netto=203.25, brutto=250.00)
+        assert podsumowanie.wyslij()["ok"] is True
+        tekst = wyslane[0]
+        assert "Dostawa (DPD): 250,00 zł brutto" in tekst
+        assert "Razem z dostawą:\n   lity: 1 093,04 zł brutto\n   mikrowczep: 993,04 zł brutto" in tekst
+        assert {"1093.04", "993.04"} <= stan.znane_kwoty()
+
+    def test_druga_technologia_niedostepna_w_jednej_pozycji_daje_jedna_sume(self, monkeypatch):
+        totals = {"order_brutto": 1200.0, "total_netto": 1171.0, "total_brutto": 1686.08}
+        _, wyslane = self._przygotuj(
+            monkeypatch, 94505, [self._produkt(), self._produkt(micro_dostepny=False)], totals)
+        assert podsumowanie.wyslij()["ok"] is True
+        tekst = wyslane[0]
+        assert tekst.count("mikrowczep: 743,04 zł brutto") == 1
+        assert "mikrowczep: niedostępny dla tych wymiarów" in tekst
+        assert "Razem za produkty (bez dostawy): 1 686,08 zł brutto" in tekst
+
+    def test_model_widzi_obie_technologie_i_nic_wiecej(self):
+        poz = [_pozycja()]
+        wynik = {"ok": True, "products": [self._produkt()], "totals": self._TOTALS}
+        okrojony = podsumowanie.wynik_dla_modelu(poz, wynik)
+        prod = okrojony["products"][0]
+        assert [v["variant_code"] for v in prod["variants"]] == ["dab-lity-ab", "dab-micro-ab"]
+        assert all("price_per_m3" not in v for v in prod["variants"])
+        assert prod["cena_brutto_wg_technologii"] == {"lity": 843.04, "mikrowczep": 743.04}
+        assert okrojony["razem_brutto_wg_technologii"] == {"lity": 843.04, "mikrowczep": 743.04}
+        # Wszystko, co widzi model, zna rejestr G1.
+        kwoty = set("%.2f" % k for k in podsumowanie.kwoty_z_wyniku(poz, wynik))
+        assert {"843.04", "743.04"} <= kwoty

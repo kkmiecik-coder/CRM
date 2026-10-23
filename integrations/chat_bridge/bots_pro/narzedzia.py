@@ -130,7 +130,10 @@ def zapisz_pozycje(
     nigdy nie przepisuj całej listy. usun=True usuwa pozycję.
 
     selected_variant: klasa B/B istnieje wyłącznie dla dębu (dab-lity-bb,
-    dab-micro-bb) — dla jesionu i buku dostępne jest tylko *-ab.
+    dab-micro-bb) — dla jesionu i buku dostępne jest tylko *-ab. Technologii
+    nie ustalaj z klientem: zapisuj *-lity-*, a *-micro-* tylko, gdy klient
+    wybierze mikrowczep albo lity jest niedostępny. Podsumowanie i tak podaje
+    cenę w obu technologiach.
 
     wykonczenie: "surowe", "olejowane" albo "lakierowane" — bez tego pola
     wyceny nie da się policzyć. Dla "olejowane"/"lakierowane" podaj też
@@ -208,7 +211,9 @@ KOD_WARIANT_NIEDOSTEPNY = "VARIANT_UNAVAILABLE"
 # test_wskazowka_nie_zawiera_ZADNEJ_kwoty.
 WSKAZOWKA_WARIANT_NIEDOSTEPNY = (
     "Ten wariant nie występuje w cenniku dla tych wymiarów — to informacja o ofercie, "
-    "nie awaria: nie przekazuj rozmowy konsultantowi. Napisz klientowi, którego wariantu "
+    "nie awaria: nie przekazuj rozmowy konsultantowi. Gdy niedostępny jest wariant lity, "
+    "a ten sam gatunek i klasa w mikrowczepie jest na liście dostępnych, zapisz mikrowczep "
+    "i policz jeszcze raz, bez pytania klienta. W pozostałych przypadkach napisz klientowi, którego wariantu "
     "to dotyczy i przy jakim wymiarze, wymień warianty dostępne wprost z pola message "
     "w errors i poproś o wybór albo o zmianę wymiaru.")
 
@@ -222,14 +227,16 @@ def _wariant_niedostepny(wynik):
 @function_tool
 def policz_wycene() -> dict:
     """Liczy cenę wszystkich zapisanych pozycji w kalkulatorze CRM. Zwraca sumy
-    i rozbicie per pozycja — WYŁĄCZNIE dla wariantu wybranego w każdej pozycji
-    (selected_variant), nie dla wszystkich wariantów drewna z katalogu. To
-    JEDYNE źródło cen produktu — nigdy nie licz samodzielnie i nigdy nie
-    podawaj kwoty, której nie ma w wyniku tego narzędzia. Wołaj za każdym
-    razem, gdy klient ustalił/zmienił dane pozycji i chcesz poznać albo
-    zaktualizować cenę — także kilka razy w jednej rozmowie.
+    i rozbicie per pozycja dla wariantu wybranego w każdej pozycji
+    (selected_variant) ORAZ dla tego samego gatunku i klasy w drugiej
+    technologii (lity/mikrowczep): cena_brutto_wg_technologii per pozycja
+    i razem_brutto_wg_technologii dla całości. To JEDYNE źródło cen produktu —
+    nigdy nie licz samodzielnie i nigdy nie podawaj kwoty, której nie ma
+    w wyniku tego narzędzia. Wołaj za każdym razem, gdy klient ustalił/zmienił
+    dane pozycji i chcesz poznać albo zaktualizować cenę — także kilka razy
+    w jednej rozmowie.
 
-    Cen INNYCH wariantów drewna to narzędzie nie zwraca i nie ma ich skąd
+    Cen INNYCH gatunków i klas to narzędzie nie zwraca i nie ma ich skąd
     wziąć — porównanie wariantów klient zobaczy w gotowej wycenie, gdzie stoją
     obok siebie razem z powodem niedostępności (patrz sekcja PORÓWNANIE)."""
     from bots_pro import podsumowanie, potwierdzenia, stan

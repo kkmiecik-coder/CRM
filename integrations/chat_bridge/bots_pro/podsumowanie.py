@@ -30,12 +30,13 @@ def _fmt_pln(v):
     return "%s,%s zł" % (calosc, ulamek)
 
 
-def _opis_materialu(poz):
+def _opis_materialu(poz, z_technologia=True):
     """'Dąb lity A/B' zamiast surowego kodu enuma 'dab-lity-ab' — gatunek/technologia/
     klasa są już w pozycji, bo stan.zapisz_pozycje rozkłada je z selected_variant
-    przy zapisie (K2)."""
+    przy zapisie (K2). Bez technologii ('Dąb A/B'), gdy podsumowanie pokazuje
+    cenę w obu technologiach osobnymi liniami (patrz `ceny_technologii`)."""
     gatunek = str(poz.get("gatunek") or "").strip()
-    technologia = str(poz.get("technologia") or "").strip().lower()
+    technologia = str(poz.get("technologia") or "").strip().lower() if z_technologia else ""
     klasa = str(poz.get("klasa") or "").strip()
     return " ".join(c for c in (gatunek, technologia, klasa) if c)
 
@@ -106,16 +107,20 @@ def _opis_edges(edges):
     return "; ".join("%s (%s)" % (etyk, ", ".join(litery)) for etyk, litery in grupy.values())
 
 
-def _linia(poz, options=None):
+def _linia(poz, options=None, z_technologia=True):
     """Jedna linia pozycji do podsumowania — wymiary, materiał, KONKRETNE
     wykończenie (kolor/połysk z katalogu, nie tylko ogólnik), typy krawędzi
     (nie tylko ich liczba) i treść otworów/wycięć. Klient ma potwierdzać
     WSZYSTKO, co obejmuje podpis (potwierdzenia.podpis) — inaczej I2
     chroniłoby dane, których nigdy nie zobaczył (W5; ten sam problem miały
     do niedawna finishing_id i typy krawędzi — pokazywana była tylko surowa
-    liczba sztuk, klient nie widział, JAKĄ obróbkę faktycznie potwierdza)."""
+    liczba sztuk, klient nie widział, JAKĄ obróbkę faktycznie potwierdza).
+
+    z_technologia=False: podsumowanie dla klienta, w którym technologia stoi
+    pod linią razem z ceną (lity / mikrowczep). Notatka dla konsultanta
+    zostaje przy domyślnym True — tam liczy się wariant przyjęty do wyceny."""
     nazwa = str(poz.get("produkt") or "produkt").strip()
-    material = _opis_materialu(poz)
+    material = _opis_materialu(poz, z_technologia)
     opis = "%s %s" % (nazwa, material) if material else nazwa
     wymiary = "%sx%sx%s cm" % (poz.get("dlugosc"), poz.get("szerokosc"), poz.get("grubosc"))
     linia = "• %s, %s, %s szt." % (opis, wymiary, poz.get("ilosc"))
@@ -324,6 +329,80 @@ def blokada_ksztaltu(pozycje):
     return None
 
 
+# --- Cena w obu technologiach (decyzja właściciela 23.10.2026) ---------------
+#
+# „Niech nie pyta ludzi »lity czy mikrowczep«, niech pomija to pytanie
+# i wycenia i to, i to." Bot zapisuje wariant lity (prompt OFERTA), a
+# podsumowanie pokazuje przy każdej pozycji cenę w litym I w mikrowczepie tego
+# samego gatunku i klasy. Nowego wywołania kalkulatora nie ma: calculate_quote
+# i tak liczy wszystkie osiem wariantów (`variants[]`), a wykończenie
+# i krawędzie od wariantu nie zależą (pricing_service: calculate_finishing,
+# calculate_edges_pricing dostają sam produkt).
+#
+# Kwoty drugiej technologii trafiają do rejestru G1 (`kwoty_z_wyniku`) — klient
+# je widzi, więc bot musi móc je powtórzyć. Rejestr rośnie WYŁĄCZNIE o drugą
+# technologię, nie o pozostałe gatunki i klasy.
+_TECHNOLOGIE = (("lity", "-lity-"), ("mikrowczep", "-micro-"))
+
+
+def _warianty_technologii(poz, prod):
+    """[(nazwa, wariant albo None)] dla litego i mikrowczepu pozycji, w tej
+    kolejności; None = wariant niedostępny dla tych wymiarów. Pusta lista, gdy
+    kod pozycji nie ma technologii w znanym kształcie — nie zgadujemy."""
+    kod = str(poz.get("selected_variant") or "")
+    obecna = next((wstawka for _, wstawka in _TECHNOLOGIE if wstawka in kod), None)
+    if not obecna:
+        return []
+    dostepne = {v.get("variant_code"): v for v in (prod.get("variants") or [])
+                if v.get("available")}
+    return [(nazwa, dostepne.get(kod.replace(obecna, wstawka)))
+            for nazwa, wstawka in _TECHNOLOGIE]
+
+
+def _kwota(v):
+    return float(v) if isinstance(v, (int, float)) else 0.0
+
+
+def ceny_technologii(pozycje, wynik):
+    """Ceny brutto w obu technologiach, policzone z JEDNEJ odpowiedzi kalkulatora.
+
+    Zwraca {"pozycje": [[(nazwa, kwota albo None), ...] na każdą pozycję],
+    "razem": {nazwa: kwota}}. Cena pozycji = materiał wariantu + wykończenie
+    + krawędzie tej pozycji. "razem" ma wpis tylko dla technologii dostępnej
+    we WSZYSTKICH pozycjach i liczy się od `totals.total_brutto` z podmianą
+    materiału: dla wariantu wybranego daje dokładnie tę samą kwotę co
+    kalkulator, więc suma do potwierdzenia nie rozjedzie się o grosz."""
+    totals = wynik.get("totals") or {}
+    produkty = wynik.get("products") or []
+    na_pozycje = []
+    material = {nazwa: 0.0 for nazwa, _ in _TECHNOLOGIE}
+    pelne = {nazwa for nazwa, _ in _TECHNOLOGIE}
+    for i, poz in enumerate(pozycje):
+        # Wpis na KAŻDĄ pozycję, także bez odpowiadającego produktu w wyniku —
+        # wtedy pusty (bez cen pod linią), a nie „niedostępny".
+        prod = produkty[i] if i < len(produkty) and isinstance(produkty[i], dict) else None
+        warianty = _warianty_technologii(poz, prod) if prod else []
+        dodatki = (_kwota((prod.get("finishing") or {}).get("brutto"))
+                   + _kwota((prod.get("edges") or {}).get("brutto"))) if prod else 0.0
+        if not warianty:
+            pelne = set()
+        linia = []
+        for nazwa, wariant in warianty:
+            if wariant is None or not isinstance(wariant.get("total_brutto"), (int, float)):
+                pelne.discard(nazwa)
+                linia.append((nazwa, None))
+                continue
+            material[nazwa] += wariant["total_brutto"]
+            linia.append((nazwa, round(wariant["total_brutto"] + dodatki, 2)))
+        na_pozycje.append(linia)
+    razem = {}
+    if pozycje and isinstance(totals.get("total_brutto"), (int, float)):
+        bez_materialu = totals["total_brutto"] - _kwota(totals.get("order_brutto"))
+        razem = {nazwa: round(bez_materialu + material[nazwa], 2)
+                 for nazwa, _ in _TECHNOLOGIE if nazwa in pelne}
+    return {"pozycje": na_pozycje, "razem": razem}
+
+
 def kwoty_z_wyniku(pozycje, wynik):
     """Wszystkie kwoty z odpowiedzi kalkulatora — nie tylko sumy całości (totals),
     ale i rozbicie per pozycja (materiał wybranego wariantu, wykończenie, krawędzie
@@ -347,15 +426,31 @@ def kwoty_z_wyniku(pozycje, wynik):
                 if isinstance(wartosc, (int, float)):
                     kwoty.append(wartosc)
 
-        kod = poz.get("selected_variant")
-        wariant = next((v for v in (prod.get("variants") or [])
-                        if v.get("variant_code") == kod and v.get("available")), None)
-        if wariant:
+        # Wariant wybrany ORAZ ten sam gatunek i klasa w drugiej technologii —
+        # obie ceny stoją w podsumowaniu (`ceny_technologii`).
+        for wariant in _warianty_do_pokazania(poz, prod):
             for pole in ("unit_netto", "unit_brutto", "total_netto", "total_brutto"):
                 wartosc = wariant.get(pole)
                 if isinstance(wartosc, (int, float)):
                     kwoty.append(wartosc)
+
+    ceny = ceny_technologii(pozycje, wynik)
+    for linia in ceny["pozycje"]:
+        kwoty.extend(kwota for _, kwota in linia if kwota is not None)
+    kwoty.extend(ceny["razem"].values())
     return kwoty
+
+
+def _warianty_do_pokazania(poz, prod):
+    """Dostępne warianty pozycji, których ceny wolno pokazać: wybrany i jego
+    odpowiednik w drugiej technologii. Kod spoza schematu technologii -> sam
+    wybrany (jak przed zmianą)."""
+    kod = poz.get("selected_variant")
+    warianty = [w for _, w in _warianty_technologii(poz, prod) if w is not None]
+    if not warianty:
+        warianty = [v for v in (prod.get("variants") or [])
+                    if v.get("variant_code") == kod and v.get("available")]
+    return warianty
 
 
 def wynik_dla_modelu(pozycje, wynik):
@@ -393,14 +488,18 @@ def wynik_dla_modelu(pozycje, wynik):
         return wynik   # brak sekcji products (np. braki_mapowania) -> nic do przycięcia
     okrojony = dict(wynik)
     przyciete_produkty = []
-    for poz, prod in zip(pozycje, wynik.get("products") or []):
+    ceny = ceny_technologii(pozycje, wynik)
+    for poz, prod, linia in zip(pozycje, wynik.get("products") or [], ceny["pozycje"]):
         prod = dict(prod)
-        kod = poz.get("selected_variant")
+        # 23.10.2026: wybrany wariant i jego odpowiednik w drugiej technologii
+        # (lity/mikrowczep) — oba są w podsumowaniu i oba zna rejestr G1.
         prod["variants"] = [
             {k: v for k, v in wariant.items() if k != "price_per_m3"}
-            for wariant in (prod.get("variants") or [])
-            if wariant.get("variant_code") == kod and wariant.get("available")
+            for wariant in _warianty_do_pokazania(poz, prod)
         ]
+        prod["cena_brutto_wg_technologii"] = {
+            nazwa: (kwota if kwota is not None else "niedostępny dla tych wymiarów")
+            for nazwa, kwota in linia}
         finishing = prod.get("finishing")
         if isinstance(finishing, dict):
             prod["finishing"] = {k: v for k, v in finishing.items() if k != "price_per_m2"}
@@ -409,6 +508,7 @@ def wynik_dla_modelu(pozycje, wynik):
             prod["edges"] = {k: v for k, v in edges.items() if k != "details"}
         przyciete_produkty.append(prod)
     okrojony["products"] = przyciete_produkty
+    okrojony["razem_brutto_wg_technologii"] = ceny["razem"]
     return okrojony
 
 
@@ -518,10 +618,32 @@ def wyslij():
     kwoty = kwoty_z_wyniku(pozycje, wynik)
     totals = wynik.get("totals") or {}
 
-    tekst = "Podsumowanie do potwierdzenia:\n" + "\n".join(
-        _linia(poz, options) for poz in pozycje)
+    # Cena w obu technologiach pod każdą pozycją (decyzja 23.10.2026, patrz
+    # `ceny_technologii`). Pozycja bez rozpoznanej technologii zostaje w starym
+    # kształcie: technologia w nazwie, bez cen pod linią.
+    ceny = ceny_technologii(pozycje, wynik)
+    linie = []
+    for poz, techn in zip(pozycje, ceny["pozycje"]):
+        linia = _linia(poz, options, z_technologia=not techn)
+        for nazwa, kwota in techn:
+            linia += ("\n   %s: %s brutto" % (nazwa, _fmt_pln(kwota)) if kwota is not None
+                      else "\n   %s: niedostępny dla tych wymiarów" % nazwa)
+        linie.append(linia)
+    tekst = "Podsumowanie do potwierdzenia:\n" + "\n".join(linie)
     razem_produkty = totals.get("total_brutto")
     dostawa_brutto = dostawa.get("brutto")
+    # Sumy w obu technologiach tylko wtedy, gdy obie są dostępne we wszystkich
+    # pozycjach; inaczej jedna suma wariantów przyjętych do wyceny, jak dotąd.
+    razem_techn = ceny["razem"] if len(ceny["razem"]) == len(_TECHNOLOGIE) else {}
+
+    def _sumy(naglowek, dodac=0.0):
+        """Blok sum: jedna linia albo para lity/mikrowczep pod nagłówkiem."""
+        if not razem_techn:
+            return "\n%s: %s brutto" % (naglowek, _fmt_pln(
+                round(float(razem_produkty or 0) + dodac, 2)))
+        return "\n%s:" % naglowek + "".join(
+            "\n   %s: %s brutto" % (nazwa, _fmt_pln(round(kwota + dodac, 2)))
+            for nazwa, kwota in razem_techn.items())
 
     # U4: dostawa jest CZĘŚCIĄ ceny (wymóg właściciela: produkt + ew. dostawa),
     # więc klient ma ją WIDZIEĆ w tym, co potwierdza — wcześniej podsumowanie
@@ -554,9 +676,11 @@ def wyslij():
         # kosztem kuriera, więc rejestrujemy ją z tym źródłem, żeby nowe
         # oszacowanie wysyłki (stan.zapisz_dostawe) mogło ją unieważnić.
         kwoty_dostawy.append(razem_z_dostawa)
-        tekst += "\n\nRazem produkty: %s brutto" % _fmt_pln(razem_produkty)
+        kwoty_dostawy.extend(round(kwota + float(dostawa_brutto), 2)
+                             for kwota in razem_techn.values())
+        tekst += "\n" + _sumy("Razem produkty")
         tekst += "\nDostawa (%s): %s brutto" % (dostawa["kurier"], _fmt_pln(dostawa_brutto))
-        tekst += "\nRazem z dostawą: %s brutto" % _fmt_pln(razem_z_dostawa)
+        tekst += _sumy("Razem z dostawą", float(dostawa_brutto))
     else:
         # Wysyłka jeszcze nieoszacowana albo gabaryt bez kuriera — NIE dopisujemy
         # ani zmyślonego "0 zł", ani nieaktualnego kosztu sprzed zmiany pozycji
@@ -577,7 +701,7 @@ def wyslij():
         else:
             tekst += ("\n\nDostawa: jeszcze nie wyceniona — koszt poznamy po podaniu "
                       "kodu pocztowego.")
-        tekst += "\nRazem za produkty (bez dostawy): %s brutto" % _fmt_pln(razem_produkty)
+        tekst += _sumy("Razem za produkty (bez dostawy)")
 
     # P1: zdanie o wszystkich wariantach — WYŁĄCZNIE tam, gdzie klient dostanie
     # link do wyceny. Na Allegro linku nie wolno wysłać (regulamin, `wysylka.

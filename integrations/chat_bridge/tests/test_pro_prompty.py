@@ -372,7 +372,9 @@ class TestP1PorownanieWariantow:
         assert "przyjęty do rachunku" in WYCENA
 
     def test_regula_zabrania_podawania_kwot_pozostalych_wariantow(self):
-        assert "Cen pozostałych wariantów NIE MASZ" in WYCENA
+        # 23.10.2026: wyjątkiem jest druga technologia (lity/mikrowczep) —
+        # jej cenę podaje podsumowanie i zna ją rejestr G1.
+        assert "Poza drugą technologią cen pozostałych wariantów NIE MASZ" in WYCENA
 
     def test_regula_zabrania_obiecywania_zestawienia_w_rozmowie(self):
         # Sedno awarii: obietnica bez pokrycia. Bot nie ma czym zestawić cen
@@ -711,7 +713,7 @@ class TestR6PorownanieNieObiecujeWyceny_KtorejKlientNieZobaczy:
         # i recepta zostają w WYCENA, czyli także na Allegro.
         assert "PORÓWNANIE." in WYCENA
         assert "Prośba o porównanie NIGDY nie jest powodem" in WYCENA
-        assert "Cen pozostałych wariantów NIE MASZ" in WYCENA
+        assert "cen pozostałych wariantów NIE MASZ" in WYCENA
         assert "przyjęty do rachunku" in WYCENA
         assert "niedostępny dla tych wymiarów" in WYCENA
         assert "nie zakładaj drugiej pozycji" in WYCENA
@@ -736,6 +738,9 @@ class TestR6PorownanieNieObiecujeWyceny_KtorejKlientNieZobaczy:
         # na dwóch sekcjach pokazywałaby wtedy wzrost przy FAKTYCZNYM spadku —
         # i pilnowałaby granicy między sekcjami zamiast rozmiaru duplikatu.
         # Zmierzone: 764+896+544 = 2204 zn przed zadaniem 3, 654+939+544 = 2137 po.
+        # 23.10.2026 (2168 zn): nowa reguła, nie dublowanie — OFERTA każe nie
+        # pytać o technologię i zapisywać lity (podsumowanie podaje obie ceny).
+        # Miejsce w budżecie całego promptu oddała sekcja WYMIARY.
         sekcje = {"OFERTA": r"OFERTA\..*?(?=\n\nPORÓWNANIE)",
                   "PORÓWNANIE": r"PORÓWNANIE\..*?(?=\n\nWYMIARY)"}
         razem = len(prompty.WYBOR_W_WYCENIE)
@@ -743,7 +748,7 @@ class TestR6PorownanieNieObiecujeWyceny_KtorejKlientNieZobaczy:
             znaleziona = re.search(wzorzec, prompty.WYCENA, re.S)
             assert znaleziona, "sekcja %s zniknęła z promptu" % nazwa
             razem += len(znaleziona.group(0))
-        assert razem <= 2140, \
+        assert razem <= 2170, \
             "OFERTA + PORÓWNANIE + blok mają %d zn, przed zadaniem 3 było 2204" % razem
 
 
@@ -813,9 +818,22 @@ class TestUN7ZapisNaBiezacoIUstepstwoOferty:
         # KLIENT, bramkowanym kanałem — czyli na Allegro nie istniał wcale.
         assert "waha się albo nie wie, który wariant wybrać" in WYCENA
 
-    def test_zakaz_zgadywania_technologii_i_klasy_NIE_zniknal(self):
+    def test_zakaz_zgadywania_klasy_NIE_zniknal(self):
         # Ustępstwo dotyczy klienta niezdecydowanego, nie kasuje reguły.
-        assert "Nie zakładaj technologii ani klasy samodzielnie" in WYCENA
+        # Technologii od 23.10.2026 bot nie ustala z klientem (decyzja
+        # właściciela) — zakaz zgadywania zostaje dla klasy.
+        assert "Nie zakładaj klasy samodzielnie" in WYCENA
+
+    def test_nie_pyta_o_technologie_tylko_zapisuje_lity(self):
+        # Decyzja właściciela 23.10.2026: „niech nie pyta ludzi »lity czy
+        # mikrowczep«, niech pomija to pytanie i wycenia i to, i to".
+        assert "NIE pytaj o technologię" in WYCENA
+        assert "zapisuj wariant lity" in WYCENA
+        assert "cenę w litym i w mikrowczepie" in WYCENA
+        assert "dopytaj o technologię" not in WYCENA
+
+    def test_dluzszy_niz_450_idzie_w_mikrowczepie_bez_pytania(self):
+        assert "lity tylko do 450 cm, dłuższy zapisz w mikrowczepie" in WYCENA
 
     def test_reguly_scalonej_sekcji_OFERTA_nie_wyparowaly(self):
         # Scalenie dublowania miało zwolnić znaki, nie wyciąć treść.
