@@ -721,6 +721,7 @@ Trasa z §8.1 oraz poniższe pola. ETag, `max-age=0`.
         "paczki": {"liczba": 2, "zaladowane": 0},
         "stan": "zweryfikowane",
         "stan_etykieta": "Zweryfikowane",
+        "status_zbiorczy": {"status": "zweryfikowane", "etykieta": "Zweryfikowane"},
         "zostaje": null,
         "niedostarczone": null,
         "dostarczono": null,
@@ -741,6 +742,7 @@ Trasa z §8.1 oraz poniższe pola. ETag, `max-age=0`.
 | Pole | Znaczenie |
 |---|---|
 | `stan` | stan przystanku: `niespakowane`, `niezweryfikowane`, `zweryfikowane`, `zaladowane`, `dostarczone`, `niedostarczone`, `anulowane`, `problem` (etykieta w `stan_etykieta`). Zamówienie anulowane w całości zostaje na liście przystanków ze `stan: "anulowane"` i `pozycja: null`, i nie wchodzi do `podsumowanie` ani `postep` — tak samo jak w panelu |
+| `status_zbiorczy` | status produkcyjny zamówienia, ten sam obiekt co w karcie zamówienia (§5.2): `{status, etykieta}`, jeden kod, gdy wszystkie pozycje mają ten sam status, inaczej `status: null` i etykieta „Różne (x/n)”. Liczy też pozycje anulowane; przystanek anulowany ma `{"status": "anulowane", "etykieta": "Anulowane"}`. Pole dodane po pierwszym wydaniu, appka traktuje je jako opcjonalne. Lista tras (§8.1) go nie ma |
 | `zostaje` | `{powod, etykieta, notatka}`, gdy kierowca oznaczył „Zostaje” przy załadunku |
 | `niedostarczone` | `{powod, etykieta, notatka, kiedy}` |
 | `geo` | punkt na mapę albo null (adres nie znaleziony); `dokladnosc`: `dokladna` albo `przyblizona` |

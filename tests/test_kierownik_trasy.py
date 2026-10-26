@@ -199,13 +199,14 @@ def test_szczegoly_przystanki_i_stany(app, client, tablet):
 
     d = przystanki[dostarczony.id]
     assert set(d) == {'pozycja', 'order_id', 'numer', 'klient', 'firma', 'miasto', 'm3', 'waga_kg', 'paczki', 'stan',
-                      'stan_etykieta', 'zostaje', 'niedostarczone', 'dostarczono', 'geo'}
+                      'stan_etykieta', 'status_zbiorczy', 'zostaje', 'niedostarczone', 'dostarczono', 'geo'}
     assert d['numer'] == dostarczony.internal_order_number
     assert (d['klient'], d['firma'], d['miasto']) == ('Jan Kowalski', 'Firma A', 'Kraków')
     m3 = round(2 * 2 * 0.024, 4)
     assert (d['m3'], d['waga_kg']) == (m3, int(round(m3 * sposoby.WAGA_KG_NA_M3)))
     assert d['paczki'] == {'liczba': 2, 'zaladowane': 2}
     assert (d['stan'], d['stan_etykieta']) == ('dostarczone', 'Dostarczone')
+    assert d['status_zbiorczy'] == {'status': 'dostarczone', 'etykieta': 'Dostarczone'}
     assert d['dostarczono'] == '2026-09-25T14:30:00' and d['zostaje'] is None and d['niedostarczone'] is None
     assert d['geo'] == {'lat': 50.0412, 'lng': 21.9991, 'dokladnosc': 'dokladna'}
 
@@ -224,6 +225,7 @@ def test_szczegoly_przystanki_i_stany(app, client, tablet):
 
     a = przystanki[anulowany.id]
     assert (a['stan'], a['stan_etykieta'], a['pozycja']) == ('anulowane', 'Anulowane', None)
+    assert a['status_zbiorczy'] == {'status': 'anulowane', 'etykieta': 'Anulowane'}
 
     assert w['niedostarczone_zdjete'] == [{
         'order_id': zdjety.id, 'numer': zdjety.internal_order_number, 'klient': zdjety.client_name,
@@ -242,6 +244,31 @@ def test_przystanek_z_problemem_ma_etykiete_z_powodem(app, client, tablet):
     t = trasa([a])
     stan = _ok(client, tablet, '/routes/%d' % t.id)['trasa']['przystanki'][0]
     assert stan['stan'] == 'problem' and stan['stan_etykieta'].startswith('PROBLEM: ')
+
+
+def test_status_zbiorczy_przystanku_jak_w_karcie_zamowienia(app, client, tablet):
+    """Pozycje na różnych etapach: `status` null i „Różne (x/n)” — liczone także z anulowanymi, jak karta (§5.2)."""
+    rozne, _ = zamowienie_z_paczkami(statusy=('zweryfikowane', 'czeka_na_wyciecie', 'anulowane'))
+    jeden, _ = zamowienie_z_paczkami(statusy=('zweryfikowane', 'zweryfikowane'))
+    t = trasa([rozne, jeden])
+
+    przystanki = {p['order_id']: p for p in _ok(client, tablet, '/routes/%d' % t.id)['trasa']['przystanki']}
+    assert przystanki[rozne.id]['status_zbiorczy'] == {'status': None, 'etykieta': u'Różne (1/3)'}
+    assert przystanki[jeden.id]['status_zbiorczy'] == {'status': 'zweryfikowane', 'etykieta': 'Zweryfikowane'}
+    karta = _ok(client, tablet, '/orders/%d' % rozne.id)['zamowienie']
+    assert przystanki[rozne.id]['status_zbiorczy'] == karta['status_zbiorczy']
+
+
+def test_status_zbiorczy_bez_zapytania_na_przystanek(app, client, tablet):
+    """Pozycje wszystkich zamówień trasy jednym zapytaniem: liczba zapytań nie rośnie z liczbą przystanków."""
+    def _liczba_zapytan(przystankow):
+        t = trasa([zamowienie_z_paczkami()[0] for _ in range(przystankow)])
+        db.session.expire_all()
+        with Zapytania() as zapytania:
+            _ok(client, tablet, '/routes/%d' % t.id)
+        return len(zapytania.lista)
+
+    assert _liczba_zapytan(1) == _liczba_zapytan(4)
 
 
 # --- przebieg: tylko zapisany, bez przeliczania (Review Focus 4) -------------------------------------------------

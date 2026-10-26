@@ -24,7 +24,7 @@ from modules.production.models import ProductionOrder
 from modules.production.utils.cache import make_weak_etag
 
 # Wersja kształtu odpowiedzi: wchodzi do ETagu, więc zmiana DTO unieważnia pamięć podręczną tabletów.
-KSZTALT_TRAS = 1
+KSZTALT_TRAS = 2
 
 # Kolejność sekcji listy (kontrakt §8.1): najpierw to, co dzieje się teraz. Inna niż w panelu tras
 # (`routes.KOLEJNOSC_STATUSOW`: robocze na górze) — kierownik zaczyna od tras w drodze.
@@ -113,7 +113,10 @@ def _geo(punkt):
 
 
 def _przystanek(stop, order, numer, pakunki_zamowienia, punkt, trasa):
-    """Przystanek trasy z §8.2. `numer` — pozycja wśród aktywnych przystanków (None dla anulowanego)."""
+    """
+    Przystanek trasy z §8.2. `numer` — pozycja wśród aktywnych przystanków (None dla anulowanego). Pozycje zamówienia
+    (`order.products`) są już wczytane jednym zapytaniem dla całej trasy (`dostawa_widok.wczytaj`, selectinload).
+    """
     aktywne = delivery.aktywne_produkty(order)
     stan, etykieta = dostawa_widok.stan_i_etykieta(order, aktywne, stop)
     # Jak routes.podsumowanie: suma m³ przystanków daje m³ trasy.
@@ -142,6 +145,8 @@ def _przystanek(stop, order, numer, pakunki_zamowienia, punkt, trasa):
                    'zaladowane': sum(1 for p in pakunki_zamowienia if dostawa_widok.paczka_zaladowana(p, trasa))},
         'stan': stan,
         'stan_etykieta': etykieta,
+        # Status produkcyjny jak w karcie zamówienia (§5.2): ta sama funkcja, wszystkie pozycje (także anulowane).
+        'status_zbiorczy': zam._status_zbiorczy(order.products),
         'zostaje': zostaje,
         'niedostarczone': niedostarczone,
         'dostarczono': stop.delivered_at.isoformat() if stop.delivered_at else None,
