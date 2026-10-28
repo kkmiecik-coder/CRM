@@ -45,18 +45,11 @@ def _agent(drukarki, sekund_temu=0, push=True):
     return a
 
 
-def _nowy(*drukarki):
-    for d in drukarki:
-        agenci.ustaw_obsluge(d, 'nowy', 1)
-    db.session.commit()
-
-
 def _po_nazwie(dane):
     return {d['nazwa']: d for d in dane['drukarki']}
 
 
 def test_migawka_agent_offline_wszystko_nieznany(klient):
-    _nowy('etykiety', 'wysylka')
     _agent([{'nazwa': 'etykiety', 'stan': 'gotowa', 'opis': ''}], sekund_temu=500)
     dane = stan.migawka()
     assert dane['agent']['online'] is False
@@ -65,7 +58,6 @@ def test_migawka_agent_offline_wszystko_nieznany(klient):
 
 
 def test_migawka_bez_agenta_i_stan_zgloszony(klient):
-    _nowy('etykiety', 'wysylka')
     assert stan.migawka()['agent'] is None
     _agent([{'nazwa': 'etykiety', 'stan': 'brak_papieru', 'opis': ''}])
     zadanie(printer='etykiety')
@@ -82,7 +74,6 @@ def test_migawka_bez_agenta_i_stan_zgloszony(klient):
 
 def test_wysylka_gotowa_tylko_gdy_zgloszona(klient):
     """XP-410B nie ma odczytu stanu: „gotowa” tylko wtedy, gdy żywy agent ją zgłosił (choćby jako nieznany)."""
-    _nowy('etykiety', 'wysylka')
     a = _agent([{'nazwa': 'wysylka', 'stan': 'nieznany', 'opis': ''}])
     p = _po_nazwie(stan.migawka())
     assert p['wysylka']['stan'] == 'gotowa' and p['wysylka']['komunikat'] == ''
@@ -94,7 +85,6 @@ def test_wysylka_gotowa_tylko_gdy_zgloszona(klient):
 
 
 def test_dzis_liczy_wydrukowane_od_polnocy_lokalnej(klient):
-    _nowy('etykiety')
     _agent([])
     teraz = datetime(2026, 7, 1, 10, 0)  # 12:00 w Warszawie, północ lokalna = 22:00 UTC poprzedniego dnia
     for kod, kiedy in (('a', datetime(2026, 6, 30, 21, 59)), ('b', datetime(2026, 6, 30, 22, 0)),
@@ -105,16 +95,19 @@ def test_dzis_liczy_wydrukowane_od_polnocy_lokalnej(klient):
     assert stan._poczatek_dnia_utc(datetime(2026, 1, 1, 10, 0)) == datetime(2025, 12, 31, 23, 0)
 
 
-def test_stary_agent_nie_jest_wiarygodny(klient):
-    _nowy('etykiety')  # wysylka zostaje na starym agencie
+def test_obsluga_zawsze_nowy(klient):
+    """Pole `obsluga` zostaje dla zgodności z appką, ale zawsze „nowy” — także gdy w prod_config został wiersz
+    przełącznika sprzed migracji; stan drukarki liczy się wtedy normalnie ze zgłoszenia agenta."""
+    db.session.add(ProductionConfig(config_key='DRUKARKA_OBSLUGA_wysylka', config_value='stary', config_type='string'))
+    db.session.commit()
     _agent([{'nazwa': 'wysylka', 'stan': 'blad', 'opis': ''}])
     p = _po_nazwie(stan.migawka())
-    assert p['wysylka']['stan'] == 'nieznany' and p['wysylka']['obsluga'] == 'stary'
-    assert p['wysylka']['komunikat'] == 'Drukarkę obsługuje stary agent'
+    assert {d['obsluga'] for d in p.values()} == {'nowy'}
+    assert p['wysylka']['stan'] == 'blad' and p['wysylka']['komunikat'] == 'Drukarka paczek: błąd'
+    assert not hasattr(stan, 'KOMUNIKAT_STARY_AGENT')
 
 
 def test_pakowanie_widzi_tylko_wysylke(klient):
-    _nowy('etykiety', 'wysylka')
     _agent([])
     db.session.add(ProductionConfig(config_key='LABEL_PRINTER_ALLOWED_STATIONS', config_value='formatting',
                                     config_type='string'))
@@ -129,7 +122,6 @@ def test_pakowanie_widzi_tylko_wysylke(klient):
 
 
 def test_etykiety_domyslnie_na_formatowaniu_i_pakowaniu(klient):
-    _nowy('etykiety', 'wysylka')
     odp = klient.get('/api/mobile/printers/status', headers=_naglowki('packaging'))
     assert set(_po_nazwie(odp.get_json())) == {'etykiety', 'wysylka'}
 
@@ -152,9 +144,8 @@ def test_sygnal_tylko_dla_zmienionych_drukarek(klient):
 
 def test_kontakt_agenta_wysyla_sygnal_po_commicie(app, klient, monkeypatch):
     app.register_blueprint(agent_api.agent_druku_v2_bp, url_prefix='/api/print-agent/v2')
-    from modules.production.routers.api import print_agent_api
-    monkeypatch.setattr(print_agent_api, '_last_expire_at', None)
-    _nowy('etykiety', 'wysylka')
+    from modules.production.drukarki.services import kolejka
+    monkeypatch.setattr(kolejka, '_ostatnie_wygaszanie', None)
     a, token = agenci.sparuj('hala', 1)
     db.session.commit()
     h = {'Authorization': 'Bearer ' + token}

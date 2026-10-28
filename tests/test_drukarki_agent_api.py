@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
-"""API agenta druku v2 (/api/print-agent/v2) i okres przejściowy: stary i nowy agent naraz."""
+"""API agenta druku v2 (/api/print-agent/v2)."""
 import pytest
 
 from extensions import db
 from modules.production.drukarki import models as m
 from modules.production.drukarki.routers import agent_api
-from modules.production.drukarki.services import agenci, konfiguracja
+from modules.production.drukarki.services import agenci, kolejka, konfiguracja
 from modules.production.models import LabelPrintJob, ProductionConfig
-from modules.production.routers.api import print_agent_api
 from tests.druk_fixtures import app, zadanie  # noqa: F401
 
-STARY_TOKEN = 'token-starego-agenta'
 V2 = '/api/print-agent/v2'
 
 
@@ -19,13 +17,10 @@ def klient(app, monkeypatch):
     db.metadata.create_all(bind=db.engine, tables=[
         m.PrintAgent.__table__, m.PrintAgentConfig.__table__, m.PrintAgentConfigChange.__table__,
         m.PrintAgentCommand.__table__, m.PrintAgentRelease.__table__])
-    monkeypatch.setattr(print_agent_api, '_get_agent_token', lambda: STARY_TOKEN)
-    monkeypatch.setattr(print_agent_api, '_last_expire_at', None)
-    monkeypatch.setattr(print_agent_api, '_last_contact_at', None)
+    monkeypatch.setattr(kolejka, '_ostatnie_wygaszanie', None)
     sygnaly = []
     monkeypatch.setattr(agent_api.realtime_service, 'publish', lambda kanal, dane: sygnaly.append((kanal, dane)))
     app.register_blueprint(agent_api.agent_druku_v2_bp, url_prefix=V2)
-    app.register_blueprint(print_agent_api.print_agent_bp, url_prefix='/api/print-agent')
     c = app.test_client()
     c.sygnaly = sygnaly
     return c
@@ -38,24 +33,12 @@ def agent(klient):
     return a, {'Authorization': 'Bearer ' + token}
 
 
-def _przelacz(drukarka, wartosc):
-    agenci.ustaw_obsluge(drukarka, wartosc, 1)
-    db.session.commit()
-
-
 def _pobierz(klient, naglowki, drukarka, **kw):
     return klient.post(V2 + '/zadania/pobierz', json={'drukarka': drukarka, 'limit': 10, **kw}, headers=naglowki)
 
 
-def _stary_jobs(klient, zapytanie=''):
-    r = klient.get('/api/print-agent/jobs' + zapytanie, headers={'Authorization': 'Bearer ' + STARY_TOKEN})
-    assert r.status_code == 200
-    return r.get_json()['jobs']
-
-
 def test_pelny_obieg_pobierz_wysylam_wyniki(klient, agent):
     a, h = agent
-    _przelacz('etykiety', 'nowy')
     z = zadanie(kod='K-1')
     db.session.commit()
     odp = _pobierz(klient, h, 'etykiety')
@@ -91,7 +74,6 @@ def test_401_dla_braku_zlego_i_uniewaznionego_tokenu(klient, agent):
 
 def test_pobierz_bledny_limit_i_drukarka(klient, agent):
     _, h = agent
-    _przelacz('etykiety', 'nowy')
     for limit in (0, 51, -1, 'x', True, 2.5):
         r = _pobierz(klient, h, 'etykiety', limit=limit)
         assert r.status_code == 400 and r.get_json() == {'error': 'bledny_limit'}
@@ -99,45 +81,23 @@ def test_pobierz_bledny_limit_i_drukarka(klient, agent):
     assert _pobierz(klient, h, 'etykiety', limit=50).status_code == 200
 
 
-def test_obaj_agenci_rozlaczne_drukarki(klient, agent):
+def test_pobierz_zawsze_dzierzawi_bez_galezi_obslugi(klient, agent):
+    """Bez okresu przejściowego: wiersze przełącznika, które zostały w prod_config (także świeże „_OD”), niczego
+    nie wstrzymują, a odpowiedź nie ma pola `obsluga`."""
+    from datetime import datetime
     _, h = agent
-    _przelacz('wysylka', 'nowy')  # etykiety zostają na starym
+    for klucz, wartosc in (('DRUKARKA_OBSLUGA_etykiety', 'stary'), ('DRUKARKA_OBSLUGA_wysylka', 'stary'),
+                           ('DRUKARKA_OBSLUGA_wysylka_OD', datetime.utcnow().isoformat())):
+        db.session.add(ProductionConfig(config_key=klucz, config_value=wartosc, config_type='string'))
     e = zadanie(kod='E')
     w = zadanie(printer='wysylka', kod='W')
     db.session.commit()
-    assert [j['id'] for j in _stary_jobs(klient, '?printers=etykiety,wysylka')] == [e.id]
-    zadania = _pobierz(klient, h, 'wysylka').get_json()['zadania']
-    assert [j['id'] for j in zadania] == [w.id]
-
-
-def test_v2_na_drukarce_starego_pusto(klient, agent):
-    _, h = agent
-    zadanie()
-    db.session.commit()
-    r = _pobierz(klient, h, 'etykiety')
-    assert r.status_code == 200 and r.get_json() == {'zadania': [], 'obsluga': 'stary'}
+    for drukarka, oczekiwane in (('etykiety', e.id), ('wysylka', w.id)):
+        odp = _pobierz(klient, h, drukarka).get_json()
+        assert set(odp) == {'zadania'}
+        assert [j['id'] for j in odp['zadania']] == [oczekiwane]
     db.session.expire_all()
-    assert LabelPrintJob.query.one().status == 'pending'
-
-
-def test_stary_bez_parametru_po_przelaczeniu_etykiet_pusto(klient, agent):
-    zadanie()
-    db.session.commit()
-    assert len(_stary_jobs(klient)) == 1
-    _przelacz('etykiety', 'nowy')
-    assert _stary_jobs(klient) == []
-
-
-def test_stary_zapisuje_ostatni_kontakt_raz_na_minute(klient):
-    _stary_jobs(klient)
-    wiersz = ProductionConfig.query.filter_by(config_key='STARY_AGENT_OSTATNI_KONTAKT').one()
-    pierwszy = wiersz.config_value
-    assert pierwszy
-    wiersz.config_value = 'znacznik'
-    db.session.commit()
-    _stary_jobs(klient)  # w oknie throttlingu: bez zapisu
-    db.session.expire_all()
-    assert ProductionConfig.query.filter_by(config_key='STARY_AGENT_OSTATNI_KONTAKT').one().config_value == 'znacznik'
+    assert {j.status for j in LabelPrintJob.query.all()} == {'claimed'}
 
 
 def test_kontakt_zapisuje_stan_agenta(klient, agent):
@@ -271,7 +231,6 @@ def test_uniewaznienie_paczki_gasi_zadanie_claimed(klient, agent):
     from modules.production.logistics.services import paczki
 
     a, h = agent
-    _przelacz('wysylka', 'nowy')
     z = zadanie(printer='wysylka', kod='P-1')
     z.package_id = 777
     db.session.commit()

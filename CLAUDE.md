@@ -309,8 +309,10 @@ Albo po prostu `./deploy.sh` — robi dokładnie to samo, z lockiem i logami.
   kod go nie zakłada; bez niego `setOrderStatus` dopychacza kończy się błędem Base., a `bl_status_pending_id`
   zostaje na zamówieniu i ponawia się co godzinę. **Etykiety paczek** (krok 4.2) drukują się zawsze przez
   kolejkę agenta druku (`prod_print_queue`, niezależnie od `LABEL_PRINTER_USE_AGENT`; tryb TCP dotyczy tylko
-  etykiet produktów): przed wdrożeniem na hubie hali nowy `tools/print_agent/print_agent.py` z sekcją
-  `[printer:wysylka]` w `config.ini` (kalibracja `--kalibruj wysylka`). Bez działającego agenta zadania paczek
+  etykiet produktów). Drukuje je agent druku v2 (`tools/agent_druku`, Windows na komputerze hali): drukarkę
+  `wysylka` wpisuje się w dokumencie konfiguracji agenta w zakładce Drukarki panelu produkcji, tam też jest
+  kalibracja i wydruk próbny. Stary agent (`tools/print_agent`) usunięty 28.10.2026 — jego API
+  (`/api/print-agent/jobs`, `/ack`, `/realtime-token`) odpowiada 410. Bez działającego agenta zadania paczek
   wygasają po godzinie, a nieudany albo wygasły druk cofa znacznik wydruku paczki (operator widzi, że etykiety
   nie ma, i drukuje ponownie). **Od P1 priorytetów** trasa robocza albo zatwierdzona ma szczebel na drabinie
   priorytetów (`drabina.zapewnij_szczebel_trasy` pod blokadą tras w `routes.utworz`), a akcje tras, zmiana sposobu

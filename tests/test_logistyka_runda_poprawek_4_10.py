@@ -97,16 +97,7 @@ def test_a_i1_wydanie_nieznanego_zamowienia_404(client):
 
 # ── B-4: nieudany albo wygasły druk etykiety paczki cofa jej znacznik wydruku ──
 
-TOKEN_AGENTA = 'token-agenta-testowy'
 T_DRUKU = datetime(2026, 10, 4, 9, 0)
-
-
-@pytest.fixture()
-def agent(app, client, monkeypatch):
-    from modules.production.routers.api import print_agent_api
-    monkeypatch.setattr(print_agent_api, '_get_agent_token', lambda: TOKEN_AGENTA)
-    app.register_blueprint(print_agent_api.print_agent_bp, url_prefix='/api/print-agent')
-    return client
 
 
 def _paczka_z_wydrukiem(liczba=1, napis='TRANSPORT WOODPOWER'):
@@ -142,67 +133,18 @@ def test_b4_nieudany_przedruk_zostawia_wczesniejszy_wydruk(app):
     assert paczka.label_delivery_text is None
 
 
-def test_b4_ack_z_bledem_drukarki_cofa_wydruk_paczki(agent, app):
-    pid, jid = _paczka_z_wydrukiem()
-    r = agent.post('/api/print-agent/ack', headers={'Authorization': 'Bearer ' + TOKEN_AGENTA},
-                   json={'results': [{'id': jid, 'success': False, 'error': 'brak papieru'}]})
-    assert r.status_code == 200 and r.get_json()['updated'] == 1
-    paczka = ProductionPackage.query.get(pid)
-    assert paczka.label_print_count == 0 and paczka.label_printed_at is None
-
-
 def test_b4_wygasle_zadanie_paczki_cofa_wydruk(app):
-    from modules.production.routers.api import print_agent_api
+    from modules.production.drukarki.services import kolejka
     pid, jid = _paczka_z_wydrukiem()
     LabelPrintJob.query.get(jid).requested_at = datetime.utcnow() - timedelta(hours=3)
     db.session.commit()
-    assert print_agent_api._expire_stale_pending(force=True) == 1
+    assert kolejka.wygas_z_throttlingiem(force=True) == 1
     paczka = ProductionPackage.query.get(pid)
     assert LabelPrintJob.query.get(jid).status == 'expired'
     assert paczka.label_print_count == 0 and paczka.label_printed_at is None
 
 
-def test_b4_udany_wydruk_paczki_bez_zmian(agent, app):
-    pid, jid = _paczka_z_wydrukiem()
-    agent.post('/api/print-agent/ack', headers={'Authorization': 'Bearer ' + TOKEN_AGENTA},
-               json={'results': [{'id': jid, 'success': True}]})
-    paczka = ProductionPackage.query.get(pid)
-    assert paczka.label_print_count == 1 and paczka.label_printed_at == T_DRUKU
-
-
-# ── B-5: token agenta druku porównywany stałoczasowo ──────────────────────────
-
-def test_b5_token_agenta_porownywany_stalo_czasowo(agent, monkeypatch):
-    from modules.production.routers.api import print_agent_api
-    porownania = []
-    oryginal = print_agent_api.hmac.compare_digest
-
-    def podglad(a, b):
-        porownania.append((a, b))
-        return oryginal(a, b)
-
-    monkeypatch.setattr(print_agent_api.hmac, 'compare_digest', podglad)
-    zly = agent.get('/api/print-agent/jobs', headers={'Authorization': 'Bearer zly-token'})
-    dobry = agent.get('/api/print-agent/jobs', headers={'Authorization': 'Bearer ' + TOKEN_AGENTA})
-    assert zly.status_code == 401 and dobry.status_code == 200
-    assert len(porownania) == 2
-
-
-def test_b5_token_spoza_ascii_to_401_nie_500(agent):
-    r = agent.get('/api/print-agent/jobs', headers={'Authorization': u'Bearer tökén'})
-    assert r.status_code == 401
-
-
-# ── B-7: przykładowa konfiguracja agenta bez adresu z sieci hali ──────────────
-
-def test_b7_przyklad_konfiguracji_agenta_z_adresem_dokumentacyjnym():
-    import os
-    import re
-    sciezka = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                           'tools', 'print_agent', 'config.example.ini')
-    adresy = re.findall(r'^ip\s*=\s*(\S+)', open(sciezka, encoding='utf-8').read(), re.M)
-    assert adresy and all(a.startswith('192.0.2.') for a in adresy)   # RFC 5737, TEST-NET-1
-
+# (B-5 i B-7 dotyczyły starego agenta druku i jego API — usunięte 23.10.2026 razem z nim.)
 
 # ── C-1, C-2: panel produkcji (skróty przy starszej przeglądarce, błąd zakładki Logistyka) ──
 
@@ -294,22 +236,6 @@ def test_m3_licznik_paczki_wyrazeniem_sql_nie_nadpisuje_rownoleglego_przedruku(a
     assert paczka.label_print_count == 1 and paczka.label_printed_at is not None
 
 
-def test_m3_ack_po_wygasnieciu_przez_inny_worker_nic_nie_cofa(agent, app):
-    """Zadanie w sesji jeszcze `pending`, a inny worker już je wygasił (i cofnął wydruk) — ACK z błędem nie cofa drugi
-    raz i nie nadpisuje statusu (zapis warunkowy WHERE status = 'pending')."""
-    pid, jid = _paczka_z_wydrukiem(liczba=2)
-    w_sesji = LabelPrintJob.query.get(jid)   # silna referencja: ACK dostaje z mapy tożsamości stary status
-    assert w_sesji.status == 'pending'
-    db.session.execute(text("UPDATE prod_print_queue SET status = 'expired' WHERE id = :j"), {'j': jid})
-    db.session.execute(text('UPDATE prod_packages SET label_print_count = 1 WHERE id = :p'), {'p': pid})
-    r = agent.post('/api/print-agent/ack', headers={'Authorization': 'Bearer ' + TOKEN_AGENTA},
-                   json={'results': [{'id': jid, 'success': False, 'error': 'brak papieru'}]})
-    assert r.status_code == 200 and r.get_json()['updated'] == 0
-    db.session.expire_all()
-    assert LabelPrintJob.query.get(jid).status == 'expired'
-    assert ProductionPackage.query.get(pid).label_print_count == 1
-
-
 def test_m4_nieudany_przedruk_zostawia_ikone_etykiety_nieaktualnej(app):
     """Przedruk po zmianie sposobu nie wyszedł: na paczce leży stara etykieta, więc panel dalej ma pokazać „etykieta
     sprzed zmiany” — napis wydruku czyścimy (nieznany), choć licznik i czas zostają."""
@@ -323,30 +249,21 @@ def test_m4_nieudany_przedruk_zostawia_ikone_etykiety_nieaktualnej(app):
     assert lista._etykiety_paczek_sprzed_zmiany(paczka.order, None, [paczka]) is True
 
 
-# ── Dokładka po re-review: zapisy warunkowe zadań druku w stałej kolejności (bez 1213 wygasanie ↔ ACK) ──
+# ── Dokładka po re-review: zapisy warunkowe zadań druku w stałej kolejności (bez 1213 przy wygasaniu) ──
 
 def _id_zapisow_zadan(z):
     return [parametry[-2] if isinstance(parametry, tuple) else None
             for sql, parametry in z.lista if sql.startswith('UPDATE prod_print_queue')]
 
 
-def test_ack_przestawia_zadania_rosnaco_po_id(agent, app):
-    ids = [_paczka_z_wydrukiem()[1] for _ in range(3)]
-    with Zapytania() as z:
-        r = agent.post('/api/print-agent/ack', headers={'Authorization': 'Bearer ' + TOKEN_AGENTA},
-                       json={'results': [{'id': i, 'success': False, 'error': 'x'} for i in reversed(ids)]})
-    assert r.status_code == 200 and r.get_json()['updated'] == 3
-    assert _id_zapisow_zadan(z) == sorted(ids)
-
-
 def test_wygasanie_przestawia_zadania_rosnaco_po_id(app):
-    from modules.production.routers.api import print_agent_api
+    from modules.production.drukarki.services import kolejka
     ids = [_paczka_z_wydrukiem()[1] for _ in range(3)]
     for i in ids:
         LabelPrintJob.query.get(i).requested_at = datetime.utcnow() - timedelta(hours=3)
     db.session.commit()
     with Zapytania() as z:
-        assert print_agent_api._expire_stale_pending(force=True) == 3
+        assert kolejka.wygas_z_throttlingiem(force=True) == 3
     wybor = [sql for sql, _ in z.lista if sql.startswith('SELECT') and 'FROM prod_print_queue' in sql][0]
     assert 'ORDER BY prod_print_queue.id' in wybor
     assert _id_zapisow_zadan(z) == sorted(ids)

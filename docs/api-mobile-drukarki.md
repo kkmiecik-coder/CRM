@@ -23,7 +23,7 @@ Gdzie to stoi w kodzie CRM:
 2. **Serwer filtruje po stanowisku urządzenia:** tablet Pakowania dostaje drukarkę paczek (`wysylka`) i — jeśli
    stanowisko jest na liście drukujących etykiety produktów — drukarkę etykiet; tablet Formatowania tylko etykiet;
    stanowisko bez drukarek dostaje `drukarki: []`.
-3. **Baner pokazuj, gdy `stan` drukarki stanowiska jest inny niż `gotowa` (poza `obsluga: "stary"`, sekcja 5);** tekst banera to gotowe pole `komunikat`.
+3. **Baner pokazuj, gdy `stan` drukarki stanowiska jest inny niż `gotowa`;** tekst banera to gotowe pole `komunikat`.
 4. **Odświeżanie:** odpytuj co 60 s oraz od razu po sygnale `{"kind":"printers"}` na kanale `station:<kod>`.
 5. **Stary serwer (404) = brak banera,** bez błędu i bez ponawiania częściej niż co 60 s.
 
@@ -70,7 +70,7 @@ ma `Cache-Control: no-store` — nie cache'uj jej.
 | `drukarki[].stan` | tekst | jedna z wartości z sekcji 2.2 |
 | `drukarki[].komunikat` | tekst | gotowy tekst banera; pusty przy `gotowa` |
 | `drukarki[].od` | tekst ISO albo `null` | gdy agent milczy: czas jego ostatniego kontaktu; w pozostałych przypadkach `null` |
-| `drukarki[].obsluga` | `"nowy"` albo `"stary"` | który agent obsługuje drukarkę (okres przejściowy, sekcja 5) |
+| `drukarki[].obsluga` | `"nowy"` | **przestarzałe** — od 28.10.2026 zawsze `"nowy"` (sekcja 5) |
 | `drukarki[].w_kolejce` | liczba | zadania czekające na tę drukarkę (oczekujące, pobrane, w wysyłce) |
 | `drukarki[].dzis` | liczba | etykiety wydrukowane dziś (doba lokalna, Europa/Warszawa) |
 
@@ -78,7 +78,7 @@ Pola, których appka nie zna, ignoruj.
 
 ### 2.2 Wartości `stan`, kolory i teksty banera
 
-Baner pokazuj dla każdej drukarki z `drukarki`, której `stan` ≠ `gotowa` (poza `obsluga: "stary"` — sekcja 5). Tekst = `komunikat` z odpowiedzi
+Baner pokazuj dla każdej drukarki z `drukarki`, której `stan` ≠ `gotowa`. Tekst = `komunikat` z odpowiedzi
 (appka niczego nie tłumaczy ani nie składa sama).
 
 | `stan` | Kolor banera | `komunikat` (drukarka paczek / etykiet) | Kiedy |
@@ -91,10 +91,9 @@ Baner pokazuj dla każdej drukarki z `drukarki`, której `stan` ≠ `gotowa` (po
 | `blad` | czerwony | `Drukarka paczek: błąd` / `Drukarka etykiet: błąd` | błąd drukarki |
 | `nieznany` | czerwony | zależnie od przyczyny, patrz niżej | serwer nie zna stanu |
 
-Dla `nieznany` pole `komunikat` ma jedną z czterech treści:
+Dla `nieznany` pole `komunikat` ma jedną z trzech treści:
 
 - `Agent druku nie odpowiada` — agent milczy dłużej niż 120 s (`agent.online = false`) albo żaden się nie zgłosił;
-- `Drukarkę obsługuje stary agent` — okres przejściowy, stan tej drukarki nie jest mierzony (sekcja 5);
 - `Drukarka paczek: agent druku jej nie obsługuje` / `Drukarka etykiet: agent druku jej nie obsługuje` — agent
   żyje, ale w ostatnim kontakcie w ogóle nie zgłosił tej drukarki (nie ma jej w swojej konfiguracji, więc nie
   pobiera jej etykiet);
@@ -135,20 +134,17 @@ przy samym odpytywaniu.
 Końcówka tylko czyta: nie zmienia stanu serwera (poza znacznikiem kontaktu urządzenia, który robi każda końcówka
 API mobilnego), więc jest bezpieczna do ponawiania.
 
-## 5. Okres przejściowy: stary i nowy agent
+## 5. Pole `obsluga` (przestarzałe)
 
-Do czasu przełączenia każdą drukarkę obsługuje dokładnie jeden agent (ustawienie administratora w panelu). Dla
-drukarki wciąż obsługiwanej przez stary agent serwer nie zna jej stanu, więc oddaje `stan: "nieznany"`,
-`komunikat: "Drukarkę obsługuje stary agent"` i `obsluga: "stary"`.
-
-**Appka nie powinna pokazywać banera dla `obsluga: "stary"`** — nie ma tam żadnej awarii, tylko brak pomiaru. Baner
-dotyczy drukarek z `obsluga: "nowy"` oraz każdej, dla której pole `obsluga` nie przyszło.
+Okres przejściowy, w którym część drukarek obsługiwał jeszcze stary agent druku, skończył się 28.10.2026. Od tego
+dnia wszystkie etykiety drukuje agent druku v2, a pole `obsluga` ma zawsze wartość `"nowy"`. Serwer wysyła je dalej
+wyłącznie dla zgodności z appką napisaną według wcześniejszej wersji tego kontraktu; nowy kod appki nie powinien go
+czytać.
 
 ## 6. Reguła dla appki w skrócie
 
 ```
 dla d w odpowiedź.drukarki:
-    jeśli d.obsluga == "stary": pomiń
     jeśli d.stan == "gotowa": pomiń
     kolor = żółty dla brak_papieru | otwarta_klapa | pauza, czerwony dla offline | blad | nieznany
     pokaż baner z tekstem d.komunikat w tym kolorze

@@ -900,8 +900,9 @@ def create_app():
         # Zakładka „Drukarki” (agent druku v2): stan, kolejka, parowanie, konfiguracja, wydania.
         from modules.production.drukarki.routers.panel_api import drukarki_panel_bp
         app.register_blueprint(drukarki_panel_bp, url_prefix='/production/api/drukarki')
+        # Stary agent druku wyłączony (23.10.2026): print_agent_bp odpowiada już tylko 410 z czytelnym komunikatem.
         app.register_blueprint(print_agent_bp, url_prefix='/api/print-agent')
-        # Agent druku v2 (nowy agent Windows); stary agent działa dalej na print_agent_bp.
+        # Agent druku v2 (agent Windows na komputerze hali) — jedyny, który drukuje etykiety.
         from modules.production.drukarki.routers.agent_api import agent_druku_v2_bp
         app.register_blueprint(agent_druku_v2_bp, url_prefix='/api/print-agent/v2')
         app.register_blueprint(production_display_bp, url_prefix='/production')

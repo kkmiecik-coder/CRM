@@ -11,9 +11,10 @@ Zasady:
 - Czas dzierżawy liczy WYŁĄCZNIE zegar serwera (datetime.utcnow()); agent żadnych czasów nie wysyła.
 - Kolejka nie bierze blokad wierszy prod_orders ani prod_products. Każdy zapis zadania jest warunkowy po
   statusie (UPDATE ... WHERE id=:id AND status=:oczekiwany), a wiele wierszy idzie rosnąco po id.
-- Funkcje nie commitują (wywołujący robi to razem ze swoją zmianą); wyjątek robi opakowanie w
-  print_agent_api._expire_stale_pending, które commituje po wygaszeniu.
+- Funkcje nie commitują (wywołujący robi to razem ze swoją zmianą); wyjątek robi `wygas_z_throttlingiem`,
+  które commituje po wygaszeniu.
 """
+import time
 from datetime import datetime, timedelta
 
 from sqlalchemy import or_
@@ -27,8 +28,14 @@ from modules.production.services.label_print_service import rollback_label_count
 
 logger = get_structured_logger('production.print_queue')
 
-# Pending starsze niż tyle wygasa (operator ma kliknąć ponownie) — jak dotąd w print_agent_api.
+# Pending starsze niż tyle wygasa (operator ma kliknąć ponownie).
 TTL_PENDING = timedelta(hours=1)
+
+# Minimalny odstęp między przebiegami sprzątania w jednym workerze (wygas_z_throttlingiem).
+ODSTEP_WYGASZANIA_S = 60
+# None = ten worker jeszcze nie sprzątał. Celowo None, a nie 0.0: time.monotonic() bywa liczone od startu procesu
+# (tak jest na macOS), więc zero jako „dawno temu” oznaczałoby, że świeży worker przez pierwszą minutę nie sprząta.
+_ostatnie_wygaszanie = None
 
 WYNIK_WYDRUKOWANE = 'wydrukowane'
 WYNIK_BLAD = 'blad'
@@ -192,6 +199,25 @@ def wygas(teraz=None):
         rollback_label_count_for_jobs(wygasajace)
     raport['expired'] = len(wygasajace)
     return raport
+
+
+def wygas_z_throttlingiem(force=False):
+    """`wygas` najwyżej raz na ODSTEP_WYGASZANIA_S w workerze (`force` omija odstęp) i commit, gdy coś się zmieniło.
+    Zwraca liczbę wygaszonych `pending` (0 także wtedy, gdy przebieg pominął throttling).
+
+    Woła je /kontakt agenta druku: agent odzywa się co kilka sekund, a TTL to godzina. Licznik jest per worker
+    gunicorna — kilku workerów to kilka przebiegów na minutę zamiast jednego, a zapisy są warunkowe i idempotentne."""
+    global _ostatnie_wygaszanie
+    teraz = time.monotonic()
+    if not force and _ostatnie_wygaszanie is not None and (teraz - _ostatnie_wygaszanie) < ODSTEP_WYGASZANIA_S:
+        return 0
+    _ostatnie_wygaszanie = teraz
+
+    raport = wygas()
+    if raport['expired'] or raport['claimed_do_pending'] or raport['sending_do_unknown']:
+        db.session.commit()
+        logger.info('Sprzątanie kolejki druku', extra=raport)
+    return raport['expired']
 
 
 def ponow(job_id, aktor):

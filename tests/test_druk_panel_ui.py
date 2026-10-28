@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Karta „Drukarka etykiet” przeniesiona z Konfiguracji do zakładki „Drukarki” (agent druku v2, zadanie 7b).
+"""Ustawienia drukarek w zakładce „Drukarki” (agent druku v2): po końcu okresu przejściowego (23.10.2026) zostało
+tylko pole stanowisk uprawnionych w „Ustawieniach druku”; karta starego agenta i przełącznik obsługi zniknęły.
 Testy tekstu źródła — repo nie ma runnera JS; render zakładki sprawdza tests/test_drukarki_panel.py."""
 import os
 import re
@@ -12,10 +13,11 @@ SKRYPT_KONFIGURACJI = os.path.join(PROD, 'static', 'js', 'modules', 'config-modu
 SKRYPT_DRUKAREK = os.path.join(PROD, 'static', 'js', 'modules', 'printers-tab.js')
 LOADER = os.path.join(PROD, 'static', 'js', 'production-app-loader.js')
 STYL_KONFIGURACJI = os.path.join(PROD, 'static', 'css', 'config-tab.css')
+STYL_DRUKAREK = os.path.join(PROD, 'static', 'css', 'printers-tab.css')
 PANEL = os.path.join(PROD, 'templates', 'panel', 'dashboard.html')
 
-# Pola karty starego agenta: id pola -> klucz prod_config (jak w dawnej karcie Konfiguracji)
-POLA_STAREGO_AGENTA = {
+# Pola dawnej karty „Drukarka etykiet”: id pola -> klucz prod_config
+POLA_DAWNEJ_KARTY = {
     'label_printer_ip': 'LABEL_PRINTER_IP',
     'label_printer_port': 'LABEL_PRINTER_PORT',
     'label_printer_timeout': 'LABEL_PRINTER_TIMEOUT_SECONDS',
@@ -37,7 +39,7 @@ def test_konfiguracja_bez_karty_drukarki():
     """Karta „Drukarka etykiet” zniknęła z Konfiguracji całkowicie (decyzja Konrada 22.10) — wszystko o drukarkach
     jest w zakładce „Drukarki”; po kracie „Pracownicy na tabletach” od razu „Terminy”."""
     html = _czytaj(KONFIGURACJA)
-    for pole in list(POLA_STAREGO_AGENTA) + list(POLA_PRZESUNIEC) + ['drukarka_wybor']:
+    for pole in list(POLA_DAWNEJ_KARTY) + list(POLA_PRZESUNIEC) + ['drukarka_wybor']:
         assert 'id="%s"' % pole not in html, pole
     assert 'LABEL_PRINTER_' not in html and 'PACKAGE_LABEL_' not in html
     assert 'wydrukProbny' not in html
@@ -52,43 +54,57 @@ def test_skrypt_konfiguracji_bez_drukarki():
         assert slowo not in js, slowo
 
 
-def test_karta_starego_agenta_w_zakladce_drukarki():
+def test_ustawienia_druku_w_zakladce_drukarki():
+    """Z dawnej karty zostało tylko pole stanowisk uprawnionych (strażnik druku, stan drukarki etykiet na tabletach);
+    tryb TCP, przełącznik trybu agenta i token starego agenta zniknęły z UI (backend i klucze zostają)."""
     html = _czytaj(DRUKARKI)
-    poczatek = html.index('id="drk-panel-stary"')
+    poczatek = html.index('id="drk-panel-ustawienia"')
     karta = html[poczatek:html.index('<!-- Okno: dodanie agenta', poczatek)]
-    for pole, klucz in POLA_STAREGO_AGENTA.items():
-        znacznik = re.search(r'<(?:input|select)[^>]*id="%s"[^>]*>' % pole, karta, re.S)
-        assert znacznik, pole
-        assert 'data-klucz="%s"' % klucz in znacznik.group(0), pole
-        assert 'drk-ust' in znacznik.group(0), pole
+    assert 'Ustawienia druku' in html and 'data-sub="ustawienia"' in html
+    znacznik = re.search(r'<input[^>]*id="label_printer_allowed_stations"[^>]*>', karta, re.S)
+    assert znacznik and 'data-klucz="LABEL_PRINTER_ALLOWED_STATIONS"' in znacznik.group(0)
+    assert 'drk-ust' in znacznik.group(0)
+    for pole, klucz in POLA_DAWNEJ_KARTY.items():
+        if klucz == 'LABEL_PRINTER_ALLOWED_STATIONS':
+            continue
+        assert 'id="%s"' % pole not in html and klucz not in html, pole
     # przesunięcia tylko w formularzu dokumentu konfiguracji agenta
     for pole in POLA_PRZESUNIEC:
         assert pole not in html, pole
     for sciezka in ('przesuniecia.etykiety.lt', 'przesuniecia.etykiety.ls', 'przesuniecia.wysylka.dx',
                     'przesuniecia.wysylka.dy'):
         assert 'data-sciezka="%s"' % sciezka in html
-    # token starego agenta bez wartości domyślnej i bez „Przywróć domyślne”
-    assert 'data-drk-reset="LABEL_PRINTER_AGENT_TOKEN"' not in html
     assert 'change-me-in-prod' not in html
-    # nagłówki grup jak w dawnej karcie (style z config-tab.css)
-    assert 'Dotyczy trybu bez agenta druku' in karta
-    assert '.config-drukarka-naglowek' in _czytaj(STYL_KONFIGURACJI)
+    # bez śladów okresu przejściowego
+    for slad in ('drk-panel-stary', 'drk-stan-stary', 'drk-obsluga', 'drk-modal-obsluga', 'data-agent=',
+                 'Stary agent', 'stary agent', 'Dotyczy trybu bez agenta druku'):
+        assert slad not in html, slad
+
+
+def test_style_bez_starego_agenta():
+    css = _czytaj(STYL_DRUKAREK)
+    for slad in ('drk-obsluga', 'drk-stan--stary', 'drk-karta-stary'):
+        assert slad not in css, slad
+    assert '.drk-karta-ustawienia' in css
+    assert 'config-drukarka-' not in _czytaj(STYL_KONFIGURACJI)
 
 
 def test_skrypt_zakladki_drukarki():
     js = _czytaj(SKRYPT_DRUKAREK)
-    # karta starego agenta zapisuje jak dawny pasek Konfiguracji
+    # „Ustawienia druku” zapisują jak pasek Konfiguracji
     assert "const ADRES_USTAWIEN = '/production/api/update-configs'" in js
     assert "'X-Requested-With': 'XMLHttpRequest'" in js
+    assert "$('drk-ustawienia-zapisz')" in js
     # odświeżanie co 15 s tylko przy widocznej zakładce
     assert 'const ODSWIEZANIE_MS = 15000' in js
     assert "getElementById('printers-tab-content')" in js and 'document.hidden' in js
     # token czyszczony przy zamknięciu okna; jedyne miejsce, gdzie trafia do strony, to pole okna
     assert "addEventListener('hidden.bs.modal'" in js
     assert re.search(r"hidden\.bs\.modal'[^}]*\$\('drk-token'\)\.value = ''", js, re.S)
-    # przełącznik obsługi: 60 s czekania w treści potwierdzenia i czytelny 409
-    assert 'nowy_agent_offline' in js and 'PRZELACZANIE_S = 60' in js
-    assert 'drukarka_poza_konfiguracja' in js
+    # bez przełącznika obsługi i karty starego agenta
+    for slad in ('nowy_agent_offline', 'drukarka_poza_konfiguracja', 'PRZELACZANIE_S', 'CISZA_STAREGO_S', '/obsluga/',
+                 'stary_agent', 'drk-stary', 'drk-obsluga', "'obsluga'", 'rysujStaregoAgenta'):
+        assert slad not in js, slad
     assert 'BaseLinker' not in js
 
 

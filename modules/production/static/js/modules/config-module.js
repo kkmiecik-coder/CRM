@@ -11,7 +11,7 @@
  * - Reset do wartości domyślnych
  */
 
-// Karta „Drukarka etykiet” (ustawienia starego agenta, wydruk próbny) jest w zakładce Drukarki
+// Ustawienia drukarek (stanowiska uprawnione, wydruk próbny) są w zakładce Drukarki
 // (static/js/modules/printers-tab.js); przesunięcia wydruku zapisuje tam dokument konfiguracji agenta.
 
 // Karty „Terminy” i „Stół stanowisk” (priorytety produkcji, krok K4b): jedyna droga zapisu tych ustawień to

@@ -965,9 +965,9 @@ class ProductionConfig(db.Model):
 
 class LabelPrintJob(db.Model):
     """
-    Zadanie drukowania etykiety w kolejce do print-agenta.
-    Wstawiane przez CRM gdy LABEL_PRINTER_USE_AGENT=True; pobierane przez
-    agent przez /api/print-agent/jobs i drukowane lokalnie w LAN biura.
+    Zadanie drukowania etykiety w kolejce do agenta druku.
+    Wstawiane przez CRM gdy LABEL_PRINTER_USE_AGENT=True (etykiety paczek zawsze); dzierżawi je agent druku v2
+    przez /api/print-agent/v2/zadania/pobierz i drukuje lokalnie w LAN hali (drukarki/services/kolejka.py).
     """
     __tablename__ = 'prod_print_queue'
 
@@ -1021,8 +1021,7 @@ class LabelPrintJob(db.Model):
              name='print_job_status'),
         default='pending', nullable=False, index=True,
     )
-    # Drukarka docelowa. Domyślna 'etykiety': kod etykiet produktów jej nie podaje,
-    # a stary agent (bez ?printers=) dostaje wyłącznie te zadania.
+    # Drukarka docelowa. Domyślna 'etykiety': kod etykiet produktów jej nie podaje.
     printer = Column(String(20), nullable=False, default='etykiety', server_default='etykiety')
     # Paczka, której dotyczy etykieta (krok 4.2 — prod_packages); NULL dla etykiet produktów.
     package_id = Column(Integer, ForeignKey('prod_packages.id', ondelete='SET NULL'), nullable=True)

@@ -14,8 +14,6 @@
     'use strict';
 
     const ODSWIEZANIE_MS = 15000;
-    const CISZA_STAREGO_S = 120;           // jak drukarki.stale.AGENT_CISZA_S
-    const PRZELACZANIE_S = 60;             // jak drukarki.stale.PRZELACZANIE_S
     const ADRES_USTAWIEN = '/production/api/update-configs';
 
     const NAZWY_DRUKAREK = { etykiety: 'Etykiety 60×40', wysylka: 'Paczki 100×150' };
@@ -48,8 +46,6 @@
     const PONAWIALNE = ['failed', 'expired', 'unknown', 'printed'];
     const BLEDY = {
         brak_aktywnego_agenta: 'Żaden nowy agent druku jeszcze się nie zgłosił. Sparuj agenta w „Agenci i wydania” i uruchom go na komputerze hali.',
-        nowy_agent_offline: 'Nowy agent druku nie odpowiada, więc nie może przejąć drukarki. Sprawdź, czy działa na komputerze hali, i spróbuj ponownie.',
-        drukarka_poza_konfiguracja: 'Nowy agent nie obsługuje jeszcze tej drukarki. Wpisz ją w konfiguracji agenta, poczekaj, aż agent ją zgłosi (do minuty), i spróbuj ponownie.',
         zadania_nie_mozna_ponowic: 'Tego zadania nie można ponowić: wciąż czeka w kolejce albo zostało anulowane.',
         zadania_nie_mozna_anulowac: 'Anulować można tylko zadanie, które czeka w kolejce. To zadanie agent już pobrał.',
         brak_zadania: 'Nie ma takiego zadania. Odśwież listę.',
@@ -58,7 +54,6 @@
         brak_konfiguracji: 'Aktywny agent nie ma jeszcze konfiguracji.',
         brak_wydania: 'Nie ma takiego wydania. Odśwież listę.',
         bledne_pole_aktywne: 'Nieprawidłowa wartość przełącznika.',
-        bledny_agent: 'Nieprawidłowy wybór agenta.',
         blad_serwera: 'Błąd serwera. Spróbuj ponownie za chwilę.'
     };
 
@@ -167,8 +162,7 @@
             migawka: null,
             strona: 1,
             konfiguracja: null,
-            zaladowane: {},          // podzakładki admina już wczytane
-            obslugaDoZmiany: null    // {drukarka, agent} w oknie potwierdzenia
+            zaladowane: {}           // podzakładki admina już wczytane
         };
         biezacy = stan;
 
@@ -233,37 +227,13 @@
             karta.classList.remove('drk-stan--alarm', 'drk-stan--uwaga');
             const liczby = `<div class="drk-stan-liczby"><span>w kolejce: <strong>${d.w_kolejce}</strong></span>
                 <span>dziś: <strong>${d.dzis}</strong></span></div>`;
-            if (d.obsluga === 'stary') {
-                // Stan nie jest mierzony — to nie awaria, więc karta bez paska alarmu (jak baner tabletu, sekcja 5).
-                tresc.innerHTML = `<div class="drk-stan-glowny">${pigulka('stary agent', 'szara')}</div>
-                    <span class="drk-drobne">Stanu nie mierzymy — drukarkę obsługuje stary agent.</span>${liczby}`;
-            } else {
-                const [tekst, rodzaj] = STANY_DRUKARKI[d.stan] || STANY_DRUKARKI.nieznany;
-                if (rodzaj === 'warn') karta.classList.add('drk-stan--uwaga');
-                if (rodzaj === 'danger') karta.classList.add('drk-stan--alarm');
-                const od = d.od ? ` od ${esc(godzina(d.od))}` : '';
-                const komunikat = d.stan !== 'gotowa' && d.komunikat
-                    ? `<span class="drk-stan-komunikat">${esc(d.komunikat)}${od}</span>` : '';
-                tresc.innerHTML = `<div class="drk-stan-glowny">${pigulka(tekst, rodzaj)}</div>${komunikat}${liczby}`;
-            }
-            karta.querySelectorAll('.drk-obsluga-btn').forEach(b => {
-                b.setAttribute('aria-pressed', b.dataset.agent === d.obsluga ? 'true' : 'false');
-            });
-        }
-
-        function rysujStaregoAgenta(stary, drukarki) {
-            const karta = $('drk-stan-stary');
-            const tresc = karta.querySelector('[data-drk-tresc]');
-            const obslugiwane = drukarki.filter(d => d.obsluga === 'stary').map(d => NAZWY_DRUKAREK_DLUGIE[d.nazwa] || d.nazwa);
-            const kontakt = stary && stary.ostatni_kontakt;
-            const swiezy = kontakt && (Date.now() - new Date(kontakt).getTime()) / 1000 <= CISZA_STAREGO_S;
-            const p = !kontakt ? pigulka('nie zgłosił się', 'szara')
-                : swiezy ? pigulka('online', 'ok') : pigulka('brak kontaktu', 'szara');
-            tresc.innerHTML = `<div class="drk-stan-glowny">${p}
-                    <span>ostatni kontakt ${esc(kontakt ? temu(kontakt) : 'nigdy')}</span></div>
-                <span class="drk-drobne">${obslugiwane.length
-                    ? 'Obsługuje: ' + esc(obslugiwane.join(', ')) + '.'
-                    : 'Nie obsługuje żadnej drukarki — można go wyłączyć.'}</span>`;
+            const [tekst, rodzaj] = STANY_DRUKARKI[d.stan] || STANY_DRUKARKI.nieznany;
+            if (rodzaj === 'warn') karta.classList.add('drk-stan--uwaga');
+            if (rodzaj === 'danger') karta.classList.add('drk-stan--alarm');
+            const od = d.od ? ` od ${esc(godzina(d.od))}` : '';
+            const komunikat = d.stan !== 'gotowa' && d.komunikat
+                ? `<span class="drk-stan-komunikat">${esc(d.komunikat)}${od}</span>` : '';
+            tresc.innerHTML = `<div class="drk-stan-glowny">${pigulka(tekst, rodzaj)}</div>${komunikat}${liczby}`;
         }
 
         async function odswiezStan() {
@@ -272,7 +242,6 @@
                 stan.migawka = m;
                 rysujAgenta(m.agent);
                 m.drukarki.forEach(rysujDrukarke);
-                rysujStaregoAgenta(m.stary_agent, m.drukarki);
                 $('drk-odswiezono').textContent = 'odświeżono ' + new Date().toLocaleTimeString('pl-PL');
             } catch (e) {
                 $('drk-odswiezono').textContent = 'nie udało się odświeżyć: ' + e.message;
@@ -388,9 +357,6 @@
                         await zapytaj('POST', `${api}/kalibracja/${drukarka}`);
                         toast('Polecenie kalibracji wysłane do agenta.', 'success');
                     });
-                case 'obsluga':
-                    if (btn.getAttribute('aria-pressed') === 'true') return;
-                    return otworzObsluge(drukarka, btn.dataset.agent);
                 case 'nowy-token':
                     return nowyToken(btn, id);
                 case 'uniewaznij':
@@ -406,37 +372,6 @@
             odswiezPrzeglad();
             return;
         }
-
-        // ── przełączenie obsługi drukarki (okres przejściowy) ──
-        const modalObsluga = new bootstrap.Modal($('drk-modal-obsluga'));
-        function otworzObsluge(drukarka, agent) {
-            stan.obslugaDoZmiany = { drukarka, agent };
-            const nazwa = NAZWY_DRUKAREK_DLUGIE[drukarka] || drukarka;
-            $('drk-obsluga-tekst').textContent = agent === 'nowy'
-                ? `Etykiety (${nazwa}) przejmie nowy agent druku. Przez ${PRZELACZANIE_S} s po przełączeniu jego etykiety ` +
-                  'czekają, aż stary agent dokończy rozpoczętą partię — potem drukują się same.'
-                : `Etykiety (${nazwa}) wrócą do starego agenta. Nowy agent przestanie je drukować od razu; stan tej ` +
-                  'drukarki nie będzie mierzony.';
-            $('drk-obsluga-blad').classList.add('d-none');
-            modalObsluga.show();
-        }
-        $('drk-obsluga-ok').addEventListener('click', async (ev) => {
-            const cel = stan.obslugaDoZmiany;
-            const przycisk = ev.currentTarget;   // po await currentTarget jest już pusty
-            if (!cel) return;
-            przycisk.disabled = true;
-            try {
-                await zapytaj('PUT', `${api}/obsluga/${cel.drukarka}`, { agent: cel.agent });
-                modalObsluga.hide();
-                toast(cel.agent === 'nowy' ? 'Drukarkę przejął nowy agent.' : 'Drukarkę obsługuje stary agent.', 'success');
-                await odswiezStan();
-            } catch (e) {
-                $('drk-obsluga-blad').textContent = e.message;
-                $('drk-obsluga-blad').classList.remove('d-none');
-            } finally {
-                przycisk.disabled = false;
-            }
-        });
 
         // ── token pokazany raz ──
         const modalToken = new bootstrap.Modal($('drk-modal-token'));
@@ -802,50 +737,50 @@
             }
         }
 
-        // ════════════════ STARY AGENT: karta przeniesiona z Konfiguracji ════════════════
-        // Zmiany zbieramy jak dawny pasek Konfiguracji (porównanie z wartością z serwera) i zapisujemy jednym
+        // ════════════════ USTAWIENIA DRUKU (stanowiska uprawnione do druku etykiet) ════════════════
+        // Zmiany zbieramy jak pasek Konfiguracji (porównanie z wartością z serwera) i zapisujemy jednym
         // POST /production/api/update-configs. Przesunięć tu nie ma — edytuje je tylko dokument konfiguracji.
 
         // Czas zmiany z serwera jest w UTC — pokazujemy go w czasie lokalnym.
         root.querySelectorAll('.drk-czas[data-czas]').forEach(el => {
             el.textContent = new Date(el.dataset.czas).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' });
         });
-        const polaStare = [...root.querySelectorAll('.drk-ust')];
-        polaStare.forEach(p => { p.dataset.pierwotna = p.value; });
+        const polaUstawien = [...root.querySelectorAll('.drk-ust')];
+        polaUstawien.forEach(p => { p.dataset.pierwotna = p.value; });
         function wartoscUstawienia(p) {
             return p.dataset.typ === 'liczba' ? liczba(p.value) : p.value;
         }
         function zmienioneUstawienia() {
             const wynik = {};
-            polaStare.forEach(p => { if (p.value !== p.dataset.pierwotna) wynik[p.dataset.klucz] = wartoscUstawienia(p); });
+            polaUstawien.forEach(p => { if (p.value !== p.dataset.pierwotna) wynik[p.dataset.klucz] = wartoscUstawienia(p); });
             return wynik;
         }
         function odswiezPasekZapisu() {
             const zmienione = zmienioneUstawienia();
             const ile = Object.keys(zmienione).length;
-            polaStare.forEach(p => p.closest('.config-item').classList.toggle('config-item-changed', p.value !== p.dataset.pierwotna));
-            $('drk-stary-zapis').hidden = !ile;
-            $('drk-stary-zapis-tekst').textContent = ile === 1 ? '1 niezapisana zmiana' : `${ile} niezapisane zmiany`;
+            polaUstawien.forEach(p => p.closest('.config-item').classList.toggle('config-item-changed', p.value !== p.dataset.pierwotna));
+            $('drk-ustawienia-zapis').hidden = !ile;
+            $('drk-ustawienia-zapis-tekst').textContent = ile === 1 ? '1 niezapisana zmiana' : `${ile} niezapisane zmiany`;
         }
-        polaStare.forEach(p => p.addEventListener(p.tagName === 'SELECT' ? 'change' : 'input', odswiezPasekZapisu));
+        polaUstawien.forEach(p => p.addEventListener(p.tagName === 'SELECT' ? 'change' : 'input', odswiezPasekZapisu));
         root.querySelectorAll('[data-drk-reset]').forEach(b => b.addEventListener('click', () => {
             const pole = root.querySelector(`.drk-ust[data-klucz="${b.dataset.drkReset}"]`);
             if (!pole || pole.dataset.domyslna === undefined) return;
             pole.value = pole.dataset.domyslna;
             odswiezPasekZapisu();
         }));
-        $('drk-stary-cofnij').addEventListener('click', () => {
-            polaStare.forEach(p => { p.value = p.dataset.pierwotna; });
+        $('drk-ustawienia-cofnij').addEventListener('click', () => {
+            polaUstawien.forEach(p => { p.value = p.dataset.pierwotna; });
             odswiezPasekZapisu();
         });
-        $('drk-stary-zapisz').addEventListener('click', async (ev) => {
+        $('drk-ustawienia-zapisz').addEventListener('click', async (ev) => {
             const przycisk = ev.currentTarget;
             const configs = zmienioneUstawienia();
             if (!Object.keys(configs).length) return;
             przycisk.disabled = true;
             try {
                 const wynik = await zapytaj('POST', ADRES_USTAWIEN, { configs });
-                polaStare.forEach(p => { if (p.dataset.klucz in configs) p.dataset.pierwotna = p.value; });
+                polaUstawien.forEach(p => { if (p.dataset.klucz in configs) p.dataset.pierwotna = p.value; });
                 odswiezPasekZapisu();
                 toast(wynik.message || 'Zapisano.', 'success');
             } catch (e) {

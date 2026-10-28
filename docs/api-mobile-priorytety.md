@@ -57,7 +57,7 @@ zamówienie). Przykłady JSON mają dane fikcyjne; kształt, kody i komunikaty s
 | ZAKOŃCZ | dowolnej pozycji; serwer nie sprawdza kolejności (`complete_task` deleguje tranzycję bez bramki kolejki, `modules/production/models.py:639` (`complete_task`)); w trybie `stary` bramka stołu wychodzi od razu (`modules/production/priorytety/services/stol.py:284-285`) | tylko pozycja w statusie stanowiska (inaczej 409 `pozycja_poza_stanowiskiem`), i to z kafla na stole, odłożonego albo z niekompletnego zamówienia (inaczej 409 `nie_na_stole`) (`modules/production/priorytety/services/stol.py:282-302`) |
 | pilność na kaflu | `is_priority` (bool, pomarańczowa ramka) i `priority_rank` (`modules/production/services/mobile_api_service.py:1290-1291`) | obiekt `priorytet`: gwiazdki 0–5, szczebel drabiny, trasa, „poz. i/n” (`modules/production/services/mobile_api_service.py:1292`; sekcja 7) |
 | Odłóż | nie ma | `POST /orders/<id>/postpone` z powodem (sekcja 5) |
-| realtime | tylko agent druku (`modules/production/routers/api/print_agent_api.py:265-301` (`realtime_token`)) | tablety: `GET /api/mobile/realtime-token`, kanały `station:<S>` (`modules/production/routers/mobile_api.py:692-731` (`realtime_token`)) |
+| realtime | tylko agent druku (`modules/production/drukarki/routers/agent_api.py` (`realtime_token`)) | tablety: `GET /api/mobile/realtime-token`, kanały `station:<S>` (`modules/production/routers/mobile_api.py:692-731` (`realtime_token`)) |
 | Lakiernia | lista po randze, appka sortuje sama („Partia”) | lista ułożona przez serwer po grupach wykończenia, z polem `grupa_wykonczenia`; **bez stołu na stałe** (`modules/production/routers/mobile_api.py:327`, `modules/production/priorytety/services/lista.py:84-112` (`porzadek_listy`)) |
 
 ---
@@ -818,10 +818,10 @@ REST-em po sygnale jest `GET desk` (Lakiernia: lista).
   `modules/production/services/station_catalog.py:24-34` (`STATION_ORDER`)).
 - `ttl_seconds` — czas życia tokena (domyślnie 3600, z konfiguracji `REALTIME.token_ttl_seconds`)
   (`modules/production/services/realtime_service.py:35`, `modules/production/services/realtime_service.py:225`).
-  Pole nazywa się inaczej niż u agenta druku (`expires_in`, `modules/production/routers/api/print_agent_api.py:280-282`).
+  Pole nazywa się inaczej niż u agenta druku (`expires_in`, `modules/production/drukarki/routers/agent_api.py` (`realtime_token`)).
 - `sse_url` — adres publiczny połączenia; **może być pustym napisem** — wtedy appka składa go z adresu CRM:
   `<adres CRM>/realtime/connection/uni_sse` (`modules/production/services/realtime_service.py:81-84`, wzór
-  `tools/print_agent/print_agent.py:417-422`).
+  `tools/agent_druku/agent_druku/push.py` (`Kanal._adres_sse`)).
 - Token jest wystawiany dla `device:<device_id>` (`modules/production/routers/mobile_api.py:720`).
 
 | Status | Ciało | Co robi appka |
@@ -832,15 +832,15 @@ REST-em po sygnale jest `GET desk` (Lakiernia: lista).
 | 404 | HTML, nie JSON | backend bez tej trasy — jak 503 (sekcja 12) |
 | 401 | `{"error": "missing_token"}` / `invalid_token` | jak w każdej końcówce z tokenem |
 
-### Połączenie SSE krok po kroku (wzorzec: `tools/print_agent/print_agent.py`)
+### Połączenie SSE krok po kroku (wzorzec: `tools/agent_druku/agent_druku/push.py`)
 
 1. **Świeży token przy każdym połączeniu** — appka nie odnawia tokena w tle; po zerwaniu woła `realtime-token`
-   jeszcze raz (`tools/print_agent/print_agent.py:1003-1028` (`connect_push`)).
+   jeszcze raz (`tools/agent_druku/agent_druku/push.py` (`Kanal.przebieg`)).
 2. **`POST` na `sse_url`** z ciałem JSON `{"token": "<JWT>"}`, nagłówki `Content-Type: application/json`,
    `Accept: text/event-stream`; odpowiedź inna niż 200 = nieudane połączenie
-   (`tools/print_agent/print_agent.py:487-515` (`open_sse`)). Limit nawiązania połączenia krótki (agent: 5 s,
-   `tools/print_agent/print_agent.py:372-376`).
-3. **Ramki** (`tools/print_agent/print_agent.py:518-548` (`classify_sse_line`)): linia pusta albo zaczynająca się od
+   (`tools/agent_druku/agent_druku/push.py` (`otworz_sse`)). Limit nawiązania połączenia krótki (agent: 5 s,
+   `tools/agent_druku/agent_druku/push.py` (`LIMIT_POLACZENIA_S`)).
+3. **Ramki** (`tools/agent_druku/agent_druku/push.py` (`klasyfikuj_linie`)): linia pusta albo zaczynająca się od
    `:` oraz pola `event:`, `id:`, `retry:` — szum; `data:` puste albo `{}` — ping; `data:` z jedynym kluczem
    `connect` — powitanie (kanał aktywny); **każda inna ramka `data:`** (także niesparsowalna) — sygnał. Appka nie czyta
    treści sygnału; serwer i tak wysyła tylko `{"kind": "station", "station": "<S>"}`
@@ -850,14 +850,13 @@ REST-em po sygnale jest `GET desk` (Lakiernia: lista).
    także lista Lakierni): sygnały z przerwy (np. wymiana tokena co godzinę) przepadły, a siatka przy pełnym stole
    nadrobiłaby je dopiero po 5 min.
 5. **Ping co ~25 s; 40 s ciszy = połączenie martwe** — zamknąć i połączyć od nowa
-   (`tools/print_agent/print_agent.py:366-371` (`SSE_PING_TIMEOUT_SECONDS`)).
+   (`tools/agent_druku/agent_druku/push.py` (`LIMIT_PINGA_S`)).
 6. **Zerwanie raz na TTL to rutyna**: broker rozłącza po wygaśnięciu tokena; jeśli połączenie żyło co najmniej
    `ttl_seconds − 60 s`, nie zgłaszać awarii, tylko połączyć się od razu z nowym tokenem
-   (`tools/print_agent/print_agent.py:978-1000` (`czy_token_wygasl_planowo`)).
+   (`tools/agent_druku/agent_druku/push.py` (`wygasl_planowo`, `TOLERANCJA_TTL_S`)).
 7. **Ponowienia wg drabinki** 1, 2, 5, 10, 15, 30, 60 s (potem co 60 s bez końca), każda wartość z losowym
    rozrzutem ±10 % — po restarcie brokera tablety hali nie mogą ruszyć w tej samej milisekundzie
-   (`tools/print_agent/print_agent.py:379` (`SSE_RECONNECT_LADDER`), `tools/print_agent/print_agent.py:961-975`
-   (`_reconnect_delay`)). Udane połączenie zeruje drabinkę.
+   (`tools/agent_druku/agent_druku/push.py` (`DRABINKA`, `opoznienie`)). Udane połączenie zeruje drabinkę.
 8. Broker po stronie serwera ma namespace `station` i włączone `uni_sse` w przykładowej konfiguracji
    (`ops/centrifugo/config.example.json:14-25`); czy jest włączony na produkcji — sprawdza wdrożenie (K7), nie appka.
 

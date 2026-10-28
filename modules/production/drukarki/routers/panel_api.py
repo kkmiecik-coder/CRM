@@ -17,7 +17,6 @@ from modules.production.drukarki import stale
 from modules.production.drukarki.models import PrintAgent, PrintAgentCommand, PrintAgentConfig, PrintAgentRelease
 from modules.production.drukarki.services import agenci, kolejka, konfiguracja, stan, wydania
 from modules.production.models import LabelPrintJob, ProductionConfig
-from modules.production.routers.api import print_agent_api
 from modules.production.routers.devices_panel import admin_required, guard
 from modules.production.services import print_queue_service, realtime_service
 
@@ -76,17 +75,12 @@ def _blad_serwera(e):
 
 # ── zakładka, stan, lista zadań ───────────────────────────────────────────────────────────────────────────────────
 
-# Karta „Drukarka etykiet” przeniesiona z Konfiguracji: ustawienia starego agenta i trybu bez agenta (TCP), zapis
-# jak dotąd przez POST /production/api/update-configs. Domyślne wartości jak EXPECTED w config_api; token starego
-# agenta nie ma domyślnej wartości. Przesunięć tu nie ma — edytuje je tylko dokument konfiguracji (PUT /konfiguracja).
-USTAWIENIA_STAREGO_AGENTA = (
-    ('LABEL_PRINTER_IP', '192.168.100.199'),
-    ('LABEL_PRINTER_PORT', '9100'),
-    ('LABEL_PRINTER_TIMEOUT_SECONDS', '3'),
-    ('LABEL_PRINTER_RETRY_COUNT', '1'),
+# Karta „Ustawienia druku” (admin): stanowiska, z których tablety drukują etykiety produktów (strażnik druku
+# i lista stanowisk widzących stan drukarki etykiet). Zapis jak dotąd przez POST /production/api/update-configs;
+# domyślna wartość jak DEFAULT_CONFIG w label_print_service. Klucze trybu bez agenta (LABEL_PRINTER_IP/PORT/
+# TIMEOUT/RETRY, LABEL_PRINTER_USE_AGENT) czyta dalej backend (tryb deweloperski), ale w panelu ich nie ma.
+USTAWIENIA_DRUKU = (
     ('LABEL_PRINTER_ALLOWED_STATIONS', 'formatting,packaging'),
-    ('LABEL_PRINTER_USE_AGENT', 'false'),
-    ('LABEL_PRINTER_AGENT_TOKEN', None),
 )
 
 
@@ -95,12 +89,12 @@ def _czy_admin():
     return (getattr(current_user, 'role', None) or '').lower() in ('admin', 'administrator')
 
 
-def _ustawienia_starego_agenta():
+def _ustawienia_druku():
     """{klucz: {'wartosc', 'domyslna', 'zmieniono'}} z prod_config; brak wiersza = wartość domyślna."""
-    klucze = [k for k, _ in USTAWIENIA_STAREGO_AGENTA]
+    klucze = [k for k, _ in USTAWIENIA_DRUKU]
     wiersze = {c.config_key: c for c in ProductionConfig.query.filter(ProductionConfig.config_key.in_(klucze)).all()}
     wynik = {}
-    for klucz, domyslna in USTAWIENIA_STAREGO_AGENTA:
+    for klucz, domyslna in USTAWIENIA_DRUKU:
         wiersz = wiersze.get(klucz)
         wartosc = wiersz.config_value if wiersz is not None and wiersz.config_value is not None else domyslna
         wynik[klucz] = {'wartosc': '' if wartosc is None else str(wartosc), 'domyslna': domyslna,
@@ -113,17 +107,13 @@ def _ustawienia_starego_agenta():
 def tab_content():
     admin = _czy_admin()
     return render_template('components/printers-tab-content.html', is_admin=admin, role=stale.ROLE,
-                           stary=_ustawienia_starego_agenta() if admin else None)
+                           ustawienia=_ustawienia_druku() if admin else None)
 
 
 @drukarki_panel_bp.route('/stan')
 @guard
 def stan_panelu():
-    migawka = stan.migawka()
-    wiersz = ProductionConfig.query.filter_by(config_key=print_agent_api.KLUCZ_OSTATNI_KONTAKT).first()
-    kontakt = (wiersz.config_value or '').strip() if wiersz is not None else ''
-    migawka['stary_agent'] = {'ostatni_kontakt': kontakt + 'Z' if kontakt else None}
-    return jsonify(migawka)
+    return jsonify(stan.migawka())
 
 
 @drukarki_panel_bp.route('/zadania')
@@ -292,7 +282,7 @@ def historia_konfiguracji():
     return jsonify({'historia': konfiguracja.historia(aktywny.id)})
 
 
-# ── kalibracja, wydania, przełącznik obsługi (admin) ──────────────────────────────────────────────────────────────
+# ── kalibracja i wydania (admin) ──────────────────────────────────────────────────────────────────────────────────
 
 @drukarki_panel_bp.route('/kalibracja/<drukarka>', methods=['POST'])
 @guard
@@ -355,26 +345,3 @@ def aktywne_wydanie(release_id):
     odpowiedz = _wydanie_json(wydanie)
     db.session.commit()
     return jsonify(odpowiedz)
-
-
-@drukarki_panel_bp.route('/obsluga/<drukarka>', methods=['PUT'])
-@guard
-@admin_required
-def ustaw_obsluge(drukarka):
-    if drukarka not in stale.ROLE:
-        return _blad('nieznana_drukarka', 404)
-    wartosc = _cialo().get('agent')
-    if wartosc not in agenci.OBSLUGA:
-        return _blad('bledny_agent', 400)
-    poprzednia = agenci.obsluga(drukarka)
-    if wartosc == 'nowy':
-        aktywny = agenci.aktywny_v2()
-        if not agenci.czy_online(aktywny):
-            return _blad('nowy_agent_offline', 409)
-        if not agenci.ma_drukarke(aktywny, drukarka):
-            return _blad('drukarka_poza_konfiguracja', 409)
-    agenci.ustaw_obsluge(drukarka, wartosc, _aktor_id())
-    if poprzednia == 'stary' and wartosc == 'nowy':
-        agenci.oznacz_przelaczenie(drukarka)  # nowy agent odczeka, aż stary dokończy partię
-    _zatwierdz_i_wyslij(lambda: realtime_service.publish_print_signal(0))
-    return jsonify({'drukarka': drukarka, 'obsluga': wartosc})

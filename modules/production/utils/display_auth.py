@@ -1,8 +1,8 @@
 """Bearer-token auth for the display monitor endpoint.
 
 Token is stored in prod_config row with key='DISPLAY_MONITOR_TOKEN'.
-Mirrors the pattern used by print_agent_api but with a generic name
-since this is not coupled to printing.
+Mirrors the pattern of the former print agent API (removed 23.10.2026)
+with a generic name, since this is not coupled to printing.
 """
 import hmac
 from functools import wraps

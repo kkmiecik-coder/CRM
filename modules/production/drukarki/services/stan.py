@@ -25,8 +25,9 @@ _OPISY_STANU = {
     'nieznany': 'stan nieznany',
 }
 KOMUNIKAT_AGENT_OFFLINE = 'Agent druku nie odpowiada'
-KOMUNIKAT_STARY_AGENT = 'Drukarkę obsługuje stary agent'
 KOMUNIKAT_NIEZGLOSZONA = '%s: agent druku jej nie obsługuje'
+# Pole `obsluga` w migawce dla tabletów — stała wartość (docs/api-mobile-drukarki.md).
+OBSLUGA = 'nowy'
 
 
 def komunikat(stan, rola):
@@ -61,10 +62,8 @@ def _zgloszone(printers_state):
     return wynik
 
 
-def _stan_drukarki(rola, zgloszone, online, obsluga):
-    """(stan, komunikat) jednej drukarki. Kolejność: stary agent > agent martwy > zgłoszony stan."""
-    if obsluga == 'stary':
-        return 'nieznany', KOMUNIKAT_STARY_AGENT
+def _stan_drukarki(rola, zgloszone, online):
+    """(stan, komunikat) jednej drukarki. Kolejność: agent martwy > drukarka niezgłoszona > zgłoszony stan."""
     if not online:
         return 'nieznany', KOMUNIKAT_AGENT_OFFLINE
     if rola not in zgloszone:
@@ -84,7 +83,7 @@ def _stan_drukarki(rola, zgloszone, online, obsluga):
 def stany_efektywne(printers_state, online):
     """{nazwa: stan} obu drukarek tak, jak zobaczy je tablet — do porównania przed i po kontakcie agenta."""
     zgloszone = _zgloszone(printers_state)
-    return {rola: _stan_drukarki(rola, zgloszone, online, agenci.obsluga(rola))[0] for rola in stale.ROLE}
+    return {rola: _stan_drukarki(rola, zgloszone, online)[0] for rola in stale.ROLE}
 
 
 def _poczatek_dnia_utc(teraz_utc):
@@ -109,16 +108,16 @@ def migawka(teraz=None):
 
     drukarki = []
     for rola in stale.ROLE:
-        obsluga = agenci.obsluga(rola)
-        stan, tekst = _stan_drukarki(rola, zgloszone, online, obsluga)
+        stan, tekst = _stan_drukarki(rola, zgloszone, online)
         drukarki.append({
             'nazwa': rola,
             'rola': stale.ROLE[rola],
             'stan': stan,
             'komunikat': tekst,
             # Serwer nie śledzi momentu zmiany stanu; dla ciszy agenta „od” to jego ostatni kontakt.
-            'od': _iso(agent.last_seen_at) if agent is not None and not online and obsluga == 'nowy' else None,
-            'obsluga': obsluga,
+            'od': _iso(agent.last_seen_at) if agent is not None and not online else None,
+            # Przestarzałe od 23.10.2026 (koniec okresu przejściowego): zawsze „nowy”, zostaje dla zgodności z appką.
+            'obsluga': OBSLUGA,
             'w_kolejce': LabelPrintJob.query.filter(
                 LabelPrintJob.printer == rola, LabelPrintJob.status.in_(STATUSY_W_KOLEJCE)).count(),
             'dzis': LabelPrintJob.query.filter(

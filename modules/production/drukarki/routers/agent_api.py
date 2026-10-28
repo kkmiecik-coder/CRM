@@ -80,9 +80,6 @@ def _drukarki_z_ciala(surowe):
 @agent_druku_v2_bp.route('/kontakt', methods=['POST'])
 @_agent_endpoint
 def kontakt():
-    # Import lokalny: print_agent_api importuje serwisy drukarek, a tu potrzebujemy tylko jego sprzątania.
-    from modules.production.routers.api import print_agent_api
-
     dane = _dane_json()
     wersja = _tekst(dane.get('wersja'), 40)
     # Najpierw wszystkie odczyty, które mogą zrobić rollback (najnowsze() robi go przy błędzie bazy), dopiero
@@ -112,7 +109,7 @@ def kontakt():
     # Kontakt zatwierdzamy PRZED sprzątaniem kolejki: błąd sprzątania nie może go cofnąć.
     db.session.commit()
     try:
-        print_agent_api._expire_stale_pending()  # throttling 60 s per worker, commit tylko gdy coś wygasło
+        kolejka.wygas_z_throttlingiem()  # najwyżej raz na 60 s w workerze, commit tylko gdy coś się zmieniło
     except Exception as e:  # noqa: BLE001 - kontakt już zatwierdzony; sprzątanie wróci przy kolejnym kontakcie
         db.session.rollback()
         logger.warning('Sprzątanie kolejki druku po kontakcie agenta v2 nie powiodło się',
@@ -134,10 +131,6 @@ def pobierz_zadania():
     drukarka = dane.get('drukarka')
     if drukarka not in stale.ROLE:
         return _blad('bledna_drukarka', 400)
-    if agenci.obsluga(drukarka) == 'stary':
-        return jsonify({'zadania': [], 'obsluga': 'stary'})
-    if agenci.przelaczanie_trwa(drukarka):  # stary agent kończy jeszcze rozpoczętą partię
-        return jsonify({'zadania': [], 'obsluga': 'przelaczanie'})
     zadania = kolejka.pobierz(g.agent.id, drukarka, limit)
     return jsonify({'zadania': [{
         'id': j.id, 'drukarka': j.printer, 'zpl': j.zpl_payload, 'kod': j.short_product_id,
@@ -212,7 +205,7 @@ def wynik_polecenia(polecenie_id):
 @agent_druku_v2_bp.route('/realtime-token', methods=['GET'])
 @_agent_endpoint
 def realtime_token():
-    """Jak stary endpoint: krótkotrwały JWT do Centrifugo na ten sam kanał `print:agent` (503 = tylko polling)."""
+    """Krótkotrwały JWT do Centrifugo na kanał `print:agent` (503 = agent zostaje przy samym odpytywaniu)."""
     if not realtime_service.is_enabled():
         return jsonify({'enabled': False, 'reason': 'realtime disabled'}), 503
     try:

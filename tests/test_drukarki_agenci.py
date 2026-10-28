@@ -68,18 +68,3 @@ def test_aktywny_v2_dopiero_po_kontakcie(app):
     agenci.uniewaznij(agent.id, 1)
     db.session.commit()
     assert agenci.aktywny_v2() is None
-
-
-def test_obsluga_domyslnie_stary(app):
-    assert agenci.obsluga('etykiety') == 'stary'
-    agenci.ustaw_obsluge('etykiety', 'nowy', 1)
-    db.session.commit()
-    assert agenci.obsluga('etykiety') == 'nowy'
-    assert agenci.obsluga('wysylka') == 'stary'
-    agenci.ustaw_obsluge('etykiety', 'stary', 1)
-    db.session.commit()
-    assert agenci.obsluga('etykiety') == 'stary'
-    with pytest.raises(ValueError):
-        agenci.ustaw_obsluge('inna', 'nowy', 1)
-    with pytest.raises(ValueError):
-        agenci.ustaw_obsluge('etykiety', 'oba', 1)

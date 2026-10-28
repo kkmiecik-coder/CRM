@@ -183,10 +183,10 @@ def publish(channel, data):
 
 
 def publish_print_signal(job_count):
-    """Budzi print-agenta: 'są nowe zadania, przyjdź po nie'.
+    """Budzi agenta druku: 'są nowe zadania, przyjdź po nie'.
 
     Payload celowo minimalny — agent po sygnale i tak woła
-    GET /api/print-agent/jobs i to ono jest źródłem prawdy.
+    POST /api/print-agent/v2/zadania/pobierz i to ono jest źródłem prawdy.
     """
     return publish(CHANNEL_PRINT_AGENT, {'kind': 'print', 'count': int(job_count or 0)})
 

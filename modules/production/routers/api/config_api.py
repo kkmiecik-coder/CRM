@@ -258,19 +258,8 @@ def config_tab_content():
             # kiedyś zmieni go w innym celu i wyłączy raport, nie wiedząc o tym.
             'DAILY_REPORT_RECIPIENTS':      ('system',      '',          'string'),
 
-            # Drukarka etykiet
-            'LABEL_PRINTER_IP':              ('printer',     '192.168.100.199',          'string'),
-            'LABEL_PRINTER_PORT':            ('printer',     9100,                       'integer'),
-            'LABEL_PRINTER_TIMEOUT_SECONDS': ('printer',     3,                          'integer'),
-            'LABEL_PRINTER_RETRY_COUNT':     ('printer',     1,                          'integer'),
-            'LABEL_PRINTER_OFFSET_LT':       ('printer',     -16,                        'integer'),
-            'LABEL_PRINTER_OFFSET_LS':       ('printer',     112,                        'integer'),
-            'LABEL_PRINTER_ALLOWED_STATIONS':('printer',     'formatting,packaging',     'string'),
-            'LABEL_PRINTER_USE_AGENT':       ('printer',     'false',                    'boolean'),
-            'LABEL_PRINTER_AGENT_TOKEN':     ('printer',     'change-me-in-prod',        'string'),
-            # Drukarka paczek 100x150 (logistyka etap 4) — przesunięcie w punktach, 8 = 1 mm
-            'PACKAGE_LABEL_OFFSET_X_DOTS':   ('printer',     0,                          'integer'),
-            'PACKAGE_LABEL_OFFSET_Y_DOTS':   ('printer',     0,                          'integer'),
+            # Klucze drukarek (LABEL_PRINTER_*, PACKAGE_LABEL_*) nie mają tu wpisów: Konfiguracja ich nie pokazuje —
+            # stanowiska uprawnione edytuje zakładka Drukarki, przesunięcia dokument konfiguracji agenta druku.
 
             # Profile pracowników (docs/worker-profiles-backend.md §4.5).
             # WORKER_SELECTION_REQUIRED to KILL-SWITCH: przy 'true' awaria katalogu
@@ -300,14 +289,12 @@ def config_tab_content():
 
         # --- 3c) Grupowanie: najpierw whitelist, potem heurystyka dla reszty ---
         config_groups = {'sync': {}, 'stations': {}, 'priorities': {}, 'system': {},
-                         'printer': {}, 'workers': {}, 'other': {}}
+                         'workers': {}, 'other': {}}
 
         def assign_group(key: str) -> str:
             if key in EXPECTED:
                 return EXPECTED[key][0]  # grupa z whitelisty
             k = key.upper()
-            if 'PRINTER' in k:
-                return 'printer'
             if k.startswith('WORKER_'):
                 return 'workers'
             if any(s in k for s in ('SYNC', 'BASELINKER')):
@@ -523,7 +510,7 @@ def update_configs():
             'LABEL_PRINTER_IP', 'LABEL_PRINTER_PORT', 'LABEL_PRINTER_TIMEOUT_SECONDS',
             'LABEL_PRINTER_RETRY_COUNT', 'LABEL_PRINTER_OFFSET_LT', 'LABEL_PRINTER_OFFSET_LS',
             'LABEL_PRINTER_ALLOWED_STATIONS',
-            'LABEL_PRINTER_USE_AGENT', 'LABEL_PRINTER_AGENT_TOKEN',
+            'LABEL_PRINTER_USE_AGENT',
             # Drukarka paczek — bez tego pola w UI istnieją, ale zapis wraca błędem.
             'PACKAGE_LABEL_OFFSET_X_DOTS', 'PACKAGE_LABEL_OFFSET_Y_DOTS',
             # Profile pracowników — bez tego przełącznik w UI istnieje, ale zapis
@@ -802,38 +789,3 @@ def get_config_info(config_key: str):
             'success': False,
             'error': f'Błąd serwera: {str(e)}'
         }), 500
-
-
-# ============================================================================
-# WYDRUK PRÓBNY - ustawianie drukarek z panelu Konfiguracja
-# ============================================================================
-
-@api_bp.route('/print-test', methods=['POST'])
-@admin_required
-def api_print_test():
-    """
-    POST /production/api/print-test  {"printer": "etykiety" | "wysylka"}
-
-    Wydruk próbny z panelu Konfiguracja → Drukarka etykiet. Wkłada jedno zadanie do
-    kolejki agenta druku — samą etykietę drukuje agent na komputerze hali.
-    """
-    from ...services import print_queue_service
-
-    dane = request.get_json(silent=True)
-    if not isinstance(dane, dict):
-        dane = {}  # ciało spoza obiektu JSON (lista, napis) to ten sam błąd co brak drukarki
-    drukarka = dane.get('printer')
-    try:
-        job = print_queue_service.wydruk_probny(
-            drukarka, {'type': 'user', 'id': current_user.id})
-    except print_queue_service.NieznanaDrukarka:
-        return jsonify({
-            'success': False,
-            'error': 'Nieznana drukarka — wybierz drukarkę etykiet albo drukarkę paczek.',
-        }), 400
-    return jsonify({
-        'success': True,
-        'job_id': job.id,
-        'message': 'Wydruk próbny w kolejce: %s. Etykieta wyjdzie, gdy agent druku pobierze zadanie.'
-                   % print_queue_service.NAZWY_DRUKAREK[drukarka],
-    }), 200

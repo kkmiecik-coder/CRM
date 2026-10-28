@@ -130,31 +130,34 @@ def test_wydruk_probny_etykiet_z_przesunieciami_etykiet_produktow(app, sygnaly):
     assert '^FO100,0^GB480,320,4^FS' in job.zpl_payload
 
 
-def test_wydruk_probny_wymaga_admina(panel):
-    assert panel.post('/production/api/print-test', json={'printer': 'wysylka'}).status_code == 401
-    _zaloguj(panel, '2')
-    assert panel.post('/production/api/print-test', json={'printer': 'wysylka'}).status_code == 403
+def test_martwa_koncowka_print_test_usunieta(panel):
+    """Wydruk próbny robi zakładka Drukarki (POST /production/api/drukarki/wydruk-probny/<drukarka>)."""
+    _zaloguj(panel, '1')
+    assert panel.post('/production/api/print-test', json={'printer': 'wysylka'}).status_code == 404
     assert LabelPrintJob.query.count() == 0
 
 
-def test_wydruk_probny_z_panelu(panel):
+def test_update_configs_bez_tokenu_starego_agenta(panel):
+    """Token starego agenta zniknął z dozwolonych kluczy; stanowiska uprawnione („Ustawienia druku”) zostają."""
     _zaloguj(panel, '1')
-    resp = panel.post('/production/api/print-test', json={'printer': 'wysylka'})
-    assert resp.status_code == 200
-    dane = resp.get_json()
-    assert dane['success'] is True and 'drukarka paczek' in dane['message']
-    job = LabelPrintJob.query.get(dane['job_id'])
-    assert job.printer == 'wysylka' and job.requested_by_id == '1'
+    resp = panel.post('/production/api/update-configs', json={'configs': {'LABEL_PRINTER_AGENT_TOKEN': 'x' * 40}},
+                      headers=NAGLOWEK_AJAX)
+    assert resp.status_code == 400 and 'LABEL_PRINTER_AGENT_TOKEN' in resp.get_json()['error']
+    db.session.rollback()
+    assert ProductionConfig.query.filter_by(config_key='LABEL_PRINTER_AGENT_TOKEN').count() == 0
+    resp = panel.post('/production/api/update-configs',
+                      json={'configs': {'LABEL_PRINTER_ALLOWED_STATIONS': 'formatting'}}, headers=NAGLOWEK_AJAX)
+    assert resp.status_code == 200 and resp.get_json()['success'] is True
+    db.session.expire_all()
+    assert ProductionConfig.query.filter_by(config_key='LABEL_PRINTER_ALLOWED_STATIONS').one().config_value == 'formatting'
 
 
-@pytest.mark.parametrize('cialo', [{}, {'printer': 'laserowa'}, {'printer': None}, {'printer': ['wysylka']},
-                                   ['x'], 'wysylka'])   # dwa ostatnie: ciało JSON, które nie jest obiektem
-def test_wydruk_probny_nieznana_drukarka(panel, cialo):
-    _zaloguj(panel, '1')
-    resp = panel.post('/production/api/print-test', json=cialo)
-    assert resp.status_code == 400
-    assert resp.get_json()['success'] is False and 'drukark' in resp.get_json()['error'].lower()
-    assert LabelPrintJob.query.count() == 0
+def test_konfiguracja_druku_bez_tokenu_starego_agenta(app):
+    from modules.production.services import label_print_service
+    db.session.add(ProductionConfig(config_key='LABEL_PRINTER_AGENT_TOKEN', config_value='dawny', config_type='string'))
+    db.session.commit()
+    assert 'agent_token' not in label_print_service._load_config()
+    assert 'agent_token' not in label_print_service.DEFAULT_CONFIG
 
 
 POPRAWNE_PRZESUNIECIA = [-120, -8, 0, 8, 120, '-8', '0', '120', ' 8 ']

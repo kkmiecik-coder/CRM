@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Panel zakładki „Drukarki” (/production/api/drukarki) i dopiski w API agenta v2 (przełączanie, kolejność /kontakt)."""
+"""Panel zakładki „Drukarki” (/production/api/drukarki) i dopiski w API agenta v2 (kolejność /kontakt)."""
 import io
 import json
 from datetime import datetime, timedelta
@@ -11,9 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from extensions import db
 from modules.production.drukarki import models as m
 from modules.production.drukarki.routers import agent_api, panel_api
-from modules.production.drukarki.services import agenci, konfiguracja
+from modules.production.drukarki.services import agenci, kolejka, konfiguracja
 from modules.production.models import LabelPrintJob, ProductionConfig
-from modules.production.routers.api import print_agent_api
 from tests.druk_fixtures import app, zadanie  # noqa: F401
 
 PANEL = '/production/api/drukarki'
@@ -45,8 +44,7 @@ def klient(app, monkeypatch, tmp_path):
     db.metadata.create_all(bind=db.engine, tables=[
         m.PrintAgent.__table__, m.PrintAgentConfig.__table__, m.PrintAgentConfigChange.__table__,
         m.PrintAgentCommand.__table__, m.PrintAgentRelease.__table__])
-    monkeypatch.setattr(print_agent_api, '_last_expire_at', None)
-    monkeypatch.setattr(print_agent_api, '_last_contact_at', None)
+    monkeypatch.setattr(kolejka, '_ostatnie_wygaszanie', None)
     sygnaly = []
     monkeypatch.setattr(panel_api.realtime_service, 'publish', lambda kanal, dane: sygnaly.append((kanal, dane)) or True)
     monkeypatch.setattr(panel_api.realtime_service, 'publish_print_signal',
@@ -83,19 +81,30 @@ def test_tab_content_dla_admina_i_nie_admina(klient):
         assert r.status_code == 200 and 'data-is-admin="%s"' % flaga in r.get_data(as_text=True)
 
 
+# Pola i znaczniki starego agenta, których po końcu okresu przejściowego nie ma w zakładce dla nikogo.
+SLADY_STAREGO_AGENTA = ('drk-panel-stary', 'drk-sub-stary', 'drk-stan-stary', 'drk-obsluga', 'drk-modal-obsluga',
+                        'data-drk-akcja="obsluga"', 'label_printer_ip', 'label_printer_port', 'label_printer_timeout',
+                        'label_printer_retry', 'label_printer_use_agent', 'label_printer_agent_token',
+                        'LABEL_PRINTER_AGENT_TOKEN', 'Stary agent', 'stary agent', 'starego agenta', 'stary-token-xyz')
+
+
 def test_tab_content_admin_widzi_konfiguracje(klient):
-    """Admin: sekcje konfiguracji, agentów i wydań oraz karta starego agenta z wartościami z prod_config."""
-    db.session.add(ProductionConfig(config_key='LABEL_PRINTER_IP', config_value='10.1.2.3', config_type='string'))
+    """Admin: sekcje konfiguracji, agentów i wydań oraz „Ustawienia druku” z samym polem stanowisk uprawnionych;
+    bez przełącznika obsługi i bez karty starego agenta (token, tryb TCP)."""
+    db.session.add(ProductionConfig(config_key='LABEL_PRINTER_ALLOWED_STATIONS', config_value='formatting',
+                                    config_type='string'))
     db.session.add(ProductionConfig(config_key='LABEL_PRINTER_AGENT_TOKEN', config_value='stary-token-xyz',
                                     config_type='string'))
     db.session.commit()
     html = klient.get(PANEL + '/tab-content').get_data(as_text=True)
     for znacznik in ('id="drk-panel-przeglad"', 'id="drk-panel-konfiguracja"', 'id="drk-panel-agenci"',
-                     'id="drk-panel-stary"', 'id="drk-zadania-lista"', 'id="drk-modal-token"',
-                     'id="label_printer_ip"', 'id="label_printer_agent_token"', 'id="label_printer_use_agent"'):
+                     'id="drk-panel-ustawienia"', 'id="drk-zadania-lista"', 'id="drk-modal-token"',
+                     'id="label_printer_allowed_stations"', 'Ustawienia druku'):
         assert znacznik in html, znacznik
-    assert 'value="10.1.2.3"' in html and 'value="stary-token-xyz"' in html
-    # Przesunięcia edytuje wyłącznie formularz dokumentu konfiguracji (PUT /konfiguracja), nie karta starego agenta.
+    assert 'data-klucz="LABEL_PRINTER_ALLOWED_STATIONS"' in html and 'value="formatting"' in html
+    for slad in SLADY_STAREGO_AGENTA:
+        assert slad not in html, slad
+    # Przesunięcia edytuje wyłącznie formularz dokumentu konfiguracji (PUT /konfiguracja).
     for pole in ('label_printer_offset_lt', 'label_printer_offset_ls', 'package_label_offset_x',
                  'package_label_offset_y'):
         assert 'id="%s"' % pole not in html
@@ -103,15 +112,12 @@ def test_tab_content_admin_widzi_konfiguracje(klient):
 
 
 def test_tab_content_uzytkownik_bez_konfiguracji(klient):
-    """Nie-admin: przegląd (karty stanu, lista zadań), bez sekcji admina i bez tokenu starego agenta."""
-    db.session.add(ProductionConfig(config_key='LABEL_PRINTER_AGENT_TOKEN', config_value='stary-token-xyz',
-                                    config_type='string'))
-    db.session.commit()
+    """Nie-admin: przegląd (karty stanu, lista zadań), bez sekcji admina."""
     ROLA['role'] = 'user'
     html = klient.get(PANEL + '/tab-content').get_data(as_text=True)
     assert 'id="drk-panel-przeglad"' in html and 'id="drk-zadania-lista"' in html
-    for znacznik in ('drk-panel-konfiguracja', 'drk-panel-agenci', 'drk-panel-stary', 'drk-modal-token',
-                     'label_printer_ip', 'label_printer_agent_token', 'stary-token-xyz'):
+    for znacznik in ('drk-panel-konfiguracja', 'drk-panel-agenci', 'drk-panel-ustawienia', 'drk-modal-token',
+                     'label_printer_allowed_stations') + SLADY_STAREGO_AGENTA:
         assert znacznik not in html, znacznik
 
 
@@ -250,81 +256,26 @@ def test_wydania_upload_i_przelaczenie(klient):
     assert klient.post(PANEL + '/wydania', data={}).status_code == 403
 
 
-def test_stan_zawiera_obsluge_i_stary_agent(klient):
+def test_stan_bez_starego_agenta(klient):
+    """Obsługa zawsze „nowy”, bez pola `stary_agent` — także gdy w prod_config zostały wiersze sprzed migracji."""
+    for klucz, wartosc in (('STARY_AGENT_OSTATNI_KONTAKT', '2026-10-22T10:00:00'),
+                           ('DRUKARKA_OBSLUGA_etykiety', 'stary'), ('DRUKARKA_OBSLUGA_wysylka', 'stary')):
+        db.session.add(ProductionConfig(config_key=klucz, config_value=wartosc, config_type='string'))
+    db.session.commit()
     ROLA['role'] = 'user'
     d = klient.get(PANEL + '/stan').get_json()
-    assert {x['nazwa']: x['obsluga'] for x in d['drukarki']} == {'etykiety': 'stary', 'wysylka': 'stary'}
-    assert d['stary_agent'] == {'ostatni_kontakt': None}
-    db.session.add(ProductionConfig(config_key='STARY_AGENT_OSTATNI_KONTAKT', config_value='2026-10-22T10:00:00',
-                                    config_type='string'))
-    db.session.commit()
-    assert klient.get(PANEL + '/stan').get_json()['stary_agent'] == {'ostatni_kontakt': '2026-10-22T10:00:00Z'}
+    assert 'stary_agent' not in d
+    assert {x['nazwa']: x['obsluga'] for x in d['drukarki']} == {'etykiety': 'nowy', 'wysylka': 'nowy'}
+    assert all('stary' not in x['komunikat'] for x in d['drukarki'])
 
 
-def test_obsluga_nowy_wymaga_agenta_online(klient):
-    r = klient.put(PANEL + '/obsluga/etykiety', json={'agent': 'nowy'})
-    assert r.status_code == 409 and r.get_json() == {'error': 'nowy_agent_offline'}
-    a, _ = _agent_online(('etykiety',))
-    a.last_seen_at = datetime.utcnow() - timedelta(seconds=121)
-    db.session.commit()
-    assert klient.put(PANEL + '/obsluga/etykiety', json={'agent': 'nowy'}).status_code == 409
-    a.last_seen_at = datetime.utcnow() - timedelta(seconds=100)
-    db.session.commit()
-    r = klient.put(PANEL + '/obsluga/etykiety', json={'agent': 'nowy'})
-    assert r.status_code == 200 and agenci.obsluga('etykiety') == 'nowy'
-    assert agenci.przelaczanie_trwa('etykiety') is True
-    od = ProductionConfig.query.filter_by(config_key='DRUKARKA_OBSLUGA_etykiety_OD').one().config_value
-    assert abs((datetime.fromisoformat(od) - datetime.utcnow()).total_seconds()) < 30
-    assert ('print', 0) in klient.sygnaly
-    # powrót na starego zawsze wolno, błędne dane to 400
-    assert klient.put(PANEL + '/obsluga/etykiety', json={'agent': 'stary'}).status_code == 200
-    assert klient.put(PANEL + '/obsluga/etykiety', json={'agent': 'x'}).status_code == 400
-    assert klient.put(PANEL + '/obsluga/nieznana', json={'agent': 'stary'}).status_code == 404
-    ROLA['role'] = 'user'
-    assert klient.put(PANEL + '/obsluga/etykiety', json={'agent': 'stary'}).status_code == 403
-
-
-def test_obsluga_nowy_wymaga_drukarki_w_konfiguracji_i_zgloszonej(klient):
-    """Drukarka, której agent nie ma w konfiguracji albo której nie zgłosił, nie przechodzi na „nowy” (etykiety
-    nie miałyby odbiorcy); stan zostaje „stary”."""
-    a, h = _agent_online()
-    r = klient.put(PANEL + '/obsluga/wysylka', json={'agent': 'nowy'})
-    assert r.status_code == 409 and r.get_json() == {'error': 'drukarka_poza_konfiguracja'}
-    # wpisana w CRM, ale agent jej jeszcze nie zgłosił
-    _wpisz_drukarki(a, ('wysylka',))
-    db.session.commit()
-    r = klient.put(PANEL + '/obsluga/wysylka', json={'agent': 'nowy'})
-    assert r.status_code == 409 and r.get_json() == {'error': 'drukarka_poza_konfiguracja'}
-    # zgłoszona przez agenta, ale nie w dokumencie konfiguracji w CRM
-    _wpisz_drukarki(a, ())
-    agenci.kontakt(a, '2.0.0', [{'nazwa': 'wysylka', 'stan': 'nieznany', 'opis': ''}], False)
-    db.session.commit()
-    assert klient.put(PANEL + '/obsluga/wysylka', json={'agent': 'nowy'}).status_code == 409
-    assert agenci.obsluga('wysylka') == 'stary'
-    # oba warunki spełnione
-    _wpisz_drukarki(a, ('wysylka',))
-    db.session.commit()
-    r = klient.put(PANEL + '/obsluga/wysylka', json={'agent': 'nowy'})
-    assert r.status_code == 200 and agenci.obsluga('wysylka') == 'nowy'
-    # powrót na starego nie wymaga niczego
-    _wpisz_drukarki(a, ())
-    db.session.commit()
-    assert klient.put(PANEL + '/obsluga/wysylka', json={'agent': 'stary'}).status_code == 200
-
-
-def test_v2_czeka_60s_po_przelaczeniu(klient):
-    _, h = _agent_online(('etykiety',))
-    z = zadanie()
-    db.session.commit()
-    assert klient.put(PANEL + '/obsluga/etykiety', json={'agent': 'nowy'}).status_code == 200
-    r = klient.post(V2 + '/zadania/pobierz', json={'drukarka': 'etykiety', 'limit': 10}, headers=h)
-    assert r.get_json() == {'zadania': [], 'obsluga': 'przelaczanie'}
-    db.session.expire_all()
-    assert LabelPrintJob.query.get(z.id).status == 'pending'
-    agenci.oznacz_przelaczenie('etykiety', datetime.utcnow() - timedelta(seconds=61))
-    db.session.commit()
-    r = klient.post(V2 + '/zadania/pobierz', json={'drukarka': 'etykiety', 'limit': 10}, headers=h)
-    assert [j['id'] for j in r.get_json()['zadania']] == [z.id]
+def test_przelacznika_obslugi_nie_ma(klient):
+    _agent_online(('etykiety',))
+    for drukarka in ('etykiety', 'wysylka'):
+        for agent in ('nowy', 'stary'):
+            r = klient.put(PANEL + '/obsluga/' + drukarka, json={'agent': agent})
+            assert r.status_code in (404, 405)
+    assert ProductionConfig.query.filter(ProductionConfig.config_key.like('DRUKARKA_OBSLUGA%')).count() == 0
 
 
 def test_kontakt_przezywa_blad_bazy_w_najnowsze(klient, monkeypatch):
@@ -371,7 +322,7 @@ def test_kontakt_przezywa_blad_sprzatania_kolejki(klient, monkeypatch):
 
     def zepsute(*_a, **_k):
         raise SQLAlchemyError('1213 zakleszczenie')
-    monkeypatch.setattr(print_agent_api.kolejka, 'wygas', zepsute)
+    monkeypatch.setattr(kolejka, 'wygas', zepsute)
     ostrzezenia = []
     monkeypatch.setattr(agent_api.logger, 'warning', lambda msg, **kw: ostrzezenia.append(msg))
     r = klient.post(V2 + '/kontakt', json={'wersja': '2.0.1'}, headers=h)

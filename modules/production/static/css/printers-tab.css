@@ -7,8 +7,8 @@
    (brak etykiet, klapa, pauza), czerwony = nie drukuje (offline, błąd, stan nieznany).
 
    Wszystkie reguły mają prefiks `.drk-tab`: ten plik ładuje się PRZED vendor/bootstrap.min.css,
-   więc pojedyncza klasa przegrywałaby z Bootstrapem. Karta „Stary agent” używa klas .config-*
-   z config-tab.css (przeniesiona z Konfiguracji bez zmian wyglądu).
+   więc pojedyncza klasa przegrywałaby z Bootstrapem. Karta „Ustawienia druku” używa klas .config-*
+   z config-tab.css (wygląd jak karty Konfiguracji).
    ═══════════════════════════════════════════════════════════════════════ */
 
 .drk-tab {
@@ -129,7 +129,7 @@
     font-variant-numeric: tabular-nums;
 }
 
-/* ─── KARTY STANU: agent, dwie drukarki, stary agent ─── */
+/* ─── KARTY STANU: agent i dwie drukarki ─── */
 .drk-tab .drk-stany {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -151,7 +151,6 @@
 /* Pasek z lewej mówi, czy karta wymaga uwagi; znaczenie niesie też pigułka i tekst */
 .drk-tab .drk-stan--uwaga { border-left: 4px solid var(--il-status-warn, #d97706); }
 .drk-tab .drk-stan--alarm { border-left: 4px solid var(--il-status-danger, #dc2626); }
-.drk-tab .drk-stan--stary { background: var(--il-bg-base, #eef0f4); }
 
 .drk-tab .drk-stan-naglowek {
     display: flex;
@@ -199,39 +198,6 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-top: auto;
-}
-
-/* Przełącznik „Obsługuje: stary agent / nowy agent” — dwa przyciski, wybrany wypełniony */
-.drk-tab .drk-obsluga {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding-top: 10px;
-    border-top: 1px solid var(--il-border-light, #e2e5ea);
-}
-
-.drk-tab .drk-obsluga-etykieta { font-size: 12px; color: var(--drk-tekst-2); margin-right: 2px; }
-
-.drk-tab .drk-obsluga-btn {
-    padding: 3px 10px;
-    font-size: 12px;
-    line-height: 1.5;
-    background: var(--il-bg-card, #fff);
-    color: var(--il-text-primary, #1a1a2e);
-    border: 1px solid var(--il-border, #c8cdd5);
-    border-radius: var(--il-radius, 3px);
-    cursor: pointer;
-}
-
-.drk-tab .drk-obsluga-btn:hover { border-color: var(--production-primary, #2c5530); }
-
-.drk-tab .drk-obsluga-btn[aria-pressed="true"] {
-    background: var(--production-primary, #2c5530);
-    border-color: var(--production-primary, #2c5530);
-    color: #fff;
-    font-weight: 600;
-    cursor: default;
 }
 
 /* ─── PIGUŁKI STANU ─── */
@@ -685,8 +651,8 @@
 
 .drk-tab .drk-aktywuj-ostrzezenie { display: block; margin-top: 2px; font-size: 12px; color: #92400e; }
 
-/* ─── KARTA STAREGO AGENTA: pasek zapisu pod polami (zamiast ogólnego paska Konfiguracji) ─── */
-.drk-tab .drk-karta-stary { margin-bottom: 16px; }
+/* ─── KARTA „USTAWIENIA DRUKU”: pasek zapisu pod polami (zamiast ogólnego paska Konfiguracji) ─── */
+.drk-tab .drk-karta-ustawienia { margin-bottom: 16px; }
 
 .drk-tab .drk-zapis {
     display: flex;

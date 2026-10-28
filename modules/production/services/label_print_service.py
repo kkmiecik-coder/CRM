@@ -34,7 +34,6 @@ DEFAULT_CONFIG = {
     'offset_ls': 112,
     'allowed_stations': ['formatting', 'packaging'],
     'use_agent': False,
-    'agent_token': '',
 }
 
 _PL_TO_ASCII = str.maketrans({
@@ -76,7 +75,7 @@ def _coerce_int(raw, default):
 
 
 def _load_config():
-    """Czyta 7 kluczy LABEL_PRINTER_* z prod_config + fallback do DEFAULT_CONFIG."""
+    """Czyta klucze LABEL_PRINTER_* z prod_config + fallback do DEFAULT_CONFIG."""
     keys = [
         'LABEL_PRINTER_IP',
         'LABEL_PRINTER_PORT',
@@ -86,7 +85,6 @@ def _load_config():
         'LABEL_PRINTER_OFFSET_LS',
         'LABEL_PRINTER_ALLOWED_STATIONS',
         'LABEL_PRINTER_USE_AGENT',
-        'LABEL_PRINTER_AGENT_TOKEN',
     ]
     rows = {
         c.config_key: c.config_value
@@ -119,7 +117,6 @@ def _load_config():
         'offset_ls': _coerce_int(rows.get('LABEL_PRINTER_OFFSET_LS', DEFAULT_CONFIG['offset_ls']), DEFAULT_CONFIG['offset_ls']),
         'allowed_stations': allowed,
         'use_agent': use_agent_raw in ('1', 'true', 'yes', 'on'),
-        'agent_token': (rows.get('LABEL_PRINTER_AGENT_TOKEN') or '').strip(),
     }
 
 
@@ -839,8 +836,8 @@ def _enqueue_labels(ids, items_by_id, station_code, actor, cfg,
                     units_by_item=None):
     """
     Tryb LABEL_PRINTER_USE_AGENT=True: dla każdego znalezionego item generuje
-    ZPL i wstawia rekord do prod_print_queue. Print-agent na hubie biura
-    pobiera pending przez /api/print-agent/jobs i drukuje lokalnie.
+    ZPL i wstawia rekord do prod_print_queue. Agent druku v2 na komputerze hali
+    pobiera pending przez /api/print-agent/v2/zadania/pobierz i drukuje lokalnie.
 
     Returns: dict zgodny z print_labels_batch (z dodatkowym queued=True).
     """

@@ -57,10 +57,6 @@ Obie strony synchronizują się same — zmiana z okienka trafia do CRM przy naj
 - Po wymianie rolki albo innego rozmiaru etykiet użyj **Kalibruj** w okienku (albo w CRM).
   **Wydruk próbny** sprawdza przesunięcia bez kolejki CRM.
 
-Dopóki w CRM dana drukarka jest obsługiwana przez starego agenta, nowy agent jej nie dotyka
-(okienko pokazuje „Drukarkę obsługuje stary agent”). CRM pozwala przełączyć drukarkę na nowego agenta
-dopiero wtedy, gdy jest wpisana w jego konfiguracji i agent zgłosił ją w ostatnim kontakcie.
-
 Poza godzinami pracy z konfiguracji agent nie pobiera zadań (wysyła tylko zaległe wyniki i raz na
 minutę melduje się w CRM). Ikona jest wtedy żółta z komunikatem „Poza godzinami pracy (…) — etykiety
 czekają w kolejce”.
@@ -110,7 +106,7 @@ na komputerze bez usługi agenta (także po odinstalowaniu) przenosi zastany kat
 `%ProgramData%\WoodPower` na bok (`WoodPower.przed-instalacja-<data>-<godzina>`) i zakłada go od nowa —
 agenta trzeba wtedy sparować ponownie (dowiązanie w miejscu katalogu jest usuwane, jego cel zostaje
 nietknięty). Przeniesiony katalog można skasować ręcznie jako administrator; unieważnij też w CRM
-token starego agenta.
+poprzedni token tego komputera (zakładka Drukarki → Agenci i wydania).
 
 Uszkodzony plik konfiguracji, dziennika albo klucza lokalnego usługa przenosi na bok
 (`<nazwa>.uszkodzony-<data>-<godzina>`, wpis CRITICAL w logu) i startuje z pustym stanem — po
